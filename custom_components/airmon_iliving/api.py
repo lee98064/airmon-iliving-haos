@@ -712,8 +712,12 @@ class AirmonApiClient:
         allow_retry: bool = True,
     ) -> Any:
         """Execute a JSON HTTP request."""
-        if auth_required and not (self._access_token or self._session_authenticated):
-            await self.async_authenticate()
+        if auth_required and not self._access_token:
+            try:
+                await self.async_ensure_access_token()
+            except AirmonAuthenticationError:
+                if not self._session_authenticated:
+                    raise
 
         headers: dict[str, str] = {"Accept": "application/json"}
         if auth_required and self._access_token:
