@@ -113,6 +113,7 @@ class AirmonDataUpdateCoordinator(DataUpdateCoordinator[dict[str, AirmonDevice]]
 
             mqtt_payload["action"] = action
 
+        mqtt_failure: str | None = None
         try:
             await self.mqtt.async_publish_json(
                 f"devices/{device.mac}/control/json",
@@ -120,17 +121,18 @@ class AirmonDataUpdateCoordinator(DataUpdateCoordinator[dict[str, AirmonDevice]]
             )
             return
         except Exception as mqtt_err:  # noqa: BLE001
+            mqtt_failure = str(mqtt_err)
             _LOGGER.warning(
                 "AIRMON MQTT control failed for %s; falling back to HTTP: %s",
                 device.mac,
-                mqtt_err,
+                mqtt_failure,
             )
 
         try:
             await self.api.async_send_command(device.mac, payload)
         except AirmonApiError as http_err:
             raise AirmonApiError(
-                f"MQTT failed: {mqtt_err}; HTTP fallback failed: {http_err}"
+                f"MQTT failed: {mqtt_failure or 'unknown'}; HTTP fallback failed: {http_err}"
             ) from http_err
 
     async def _async_wait_for_updated_device(self, mac: str) -> AirmonDevice | None:
