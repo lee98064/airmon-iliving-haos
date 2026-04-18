@@ -158,11 +158,10 @@ class AirmonMqttClient:
         _properties: Any,
     ) -> None:
         """Subscribe after connection."""
-        reason_value = int(reason_code)
-        if reason_value != 0:
+        if not self._is_success_reason_code(reason_code):
             self._connected = False
             self._last_failure = (
-                f"AIRMON MQTT connect rejected by broker: {reason_code}"
+                f"AIRMON MQTT connect rejected by broker: {self._reason_code_text(reason_code)}"
             )
             self._hass.loop.call_soon_threadsafe(self._failed_event.set)
             _LOGGER.warning("AIRMON MQTT connect failed: %s", reason_code)
@@ -197,10 +196,13 @@ class AirmonMqttClient:
         """Log disconnects for troubleshooting."""
         self._connected = False
         self._hass.loop.call_soon_threadsafe(self._connected_event.clear)
-        if int(reason_code) == 0:
+        if self._is_success_reason_code(reason_code):
             return
         if not self._connected_event.is_set():
-            self._last_failure = f"AIRMON MQTT disconnected during connect: {reason_code}"
+            self._last_failure = (
+                "AIRMON MQTT disconnected during connect: "
+                f"{self._reason_code_text(reason_code)}"
+            )
             self._hass.loop.call_soon_threadsafe(self._failed_event.set)
         _LOGGER.warning("AIRMON MQTT disconnected: %s", reason_code)
 
@@ -300,3 +302,28 @@ class AirmonMqttClient:
 
         if failed_task in done and self._failed_event.is_set():
             raise RuntimeError(self._last_failure or "AIRMON MQTT connection failed")
+
+    @staticmethod
+    def _is_success_reason_code(reason_code: Any) -> bool:
+        """Return whether a paho reason code represents success."""
+        is_failure = getattr(reason_code, "is_failure", None)
+        if is_failure is not None:
+            try:
+                return not bool(is_failure)
+            except Exception:  # noqa: BLE001
+                pass
+
+        value = getattr(reason_code, "value", reason_code)
+        try:
+            return int(value) == 0
+        except (TypeError, ValueError):
+            text = str(reason_code).strip().lower()
+            return text in {"0", "success", "normal disconnection"}
+
+    @staticmethod
+    def _reason_code_text(reason_code: Any) -> str:
+        """Return a stable human-readable reason-code string."""
+        value = getattr(reason_code, "value", None)
+        if value is not None:
+            return f"{reason_code} ({value})"
+        return str(reason_code)
