@@ -39,23 +39,21 @@ class AirmonMqttClient:
         self._coordinator = coordinator
         self._host = host
         self._port = port
-        self._username = username or None
-        self._password = password or None
+        self._configured_username = username or None
+        self._configured_password = password or None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._active_username: str | None = None
+        self._active_password: str | None = None
         self._use_tls = use_tls
         self._subscribe_updates = subscribe_updates
         self._started = False
         self._connected = False
         self._connect_lock = asyncio.Lock()
         self._connected_event = asyncio.Event()
-        self._client = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            client_id=f"ha-airmon-{uuid4().hex[:10]}",
-            protocol=mqtt.MQTTv311,
-        )
-        self._client.enable_logger(_LOGGER)
-        self._client.on_connect = self._on_connect
-        self._client.on_disconnect = self._on_disconnect
-        self._client.on_message = self._on_message
+        self._failed_event = asyncio.Event()
+        self._last_failure: str | None = None
+        self._client = self._build_client()
 
     async def async_start(self) -> None:
         """Start the background MQTT loop."""
@@ -63,27 +61,56 @@ class AirmonMqttClient:
             if self._started and self._connected:
                 return
 
-            if not self._password:
-                self._password = await self._api.async_ensure_access_token()
-            self._username = self._username or self._api.username
+            token = await self._api.async_ensure_access_token()
+            last_error: RuntimeError | None = None
 
-            if self._username:
-                self._client.username_pw_set(self._username, self._password)
+            for username, password, label in self._credential_candidates(token):
+                self._username = username
+                self._password = password
+                if self._username:
+                    self._client.username_pw_set(self._username, self._password)
 
-            if self._use_tls:
-                self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+                if self._use_tls:
+                    self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
 
-            self._connected_event.clear()
-            if not self._started:
-                await self._hass.async_add_executor_job(self._connect)
-                self._started = True
-            elif not self._connected:
-                await self._hass.async_add_executor_job(self._reconnect)
+                self._connected_event.clear()
+                self._failed_event.clear()
+                self._last_failure = None
+                _LOGGER.debug(
+                    "Trying AIRMON MQTT connection to %s:%s using %s",
+                    self._host,
+                    self._port,
+                    label,
+                )
 
-            try:
-                await asyncio.wait_for(self._connected_event.wait(), timeout=10)
-            except TimeoutError as err:
-                raise RuntimeError("AIRMON MQTT connection timed out") from err
+                try:
+                    if not self._started:
+                        await self._hass.async_add_executor_job(self._connect)
+                        self._started = True
+                    elif not self._connected:
+                        await self._hass.async_add_executor_job(self._reconnect)
+                    await self._async_wait_for_connection()
+                except RuntimeError as err:
+                    last_error = err
+                    _LOGGER.warning(
+                        "AIRMON MQTT connect attempt failed using %s: %s",
+                        label,
+                        err,
+                    )
+                    if self._started:
+                        await self._hass.async_add_executor_job(self._disconnect)
+                        self._started = False
+                        self._connected = False
+                    self._client = self._build_client()
+                    continue
+
+                self._active_username = self._username
+                self._active_password = self._password
+                return
+
+            raise last_error or RuntimeError(
+                f"AIRMON MQTT connection failed for {self._host}:{self._port}"
+            )
 
     async def async_stop(self) -> None:
         """Stop the background MQTT loop."""
@@ -133,10 +160,16 @@ class AirmonMqttClient:
         """Subscribe after connection."""
         reason_value = int(reason_code)
         if reason_value != 0:
+            self._connected = False
+            self._last_failure = (
+                f"AIRMON MQTT connect rejected by broker: {reason_code}"
+            )
+            self._hass.loop.call_soon_threadsafe(self._failed_event.set)
             _LOGGER.warning("AIRMON MQTT connect failed: %s", reason_code)
             return
 
         self._connected = True
+        self._last_failure = None
         self._hass.loop.call_soon_threadsafe(self._connected_event.set)
 
         if not self._subscribe_updates:
@@ -166,6 +199,9 @@ class AirmonMqttClient:
         self._hass.loop.call_soon_threadsafe(self._connected_event.clear)
         if int(reason_code) == 0:
             return
+        if not self._connected_event.is_set():
+            self._last_failure = f"AIRMON MQTT disconnected during connect: {reason_code}"
+            self._hass.loop.call_soon_threadsafe(self._failed_event.set)
         _LOGGER.warning("AIRMON MQTT disconnected: %s", reason_code)
 
     def _on_message(
@@ -198,3 +234,69 @@ class AirmonMqttClient:
         message = self._client.publish(topic, payload=payload, qos=1, retain=False)
         message.wait_for_publish()
         return message.rc
+
+    def _build_client(self) -> mqtt.Client:
+        """Create a fresh MQTT client instance bound to this object."""
+        client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"ha-airmon-{uuid4().hex[:10]}",
+            protocol=mqtt.MQTTv311,
+        )
+        client.enable_logger(_LOGGER)
+        client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
+        client.on_message = self._on_message
+        return client
+
+    def _credential_candidates(
+        self,
+        token: str,
+    ) -> list[tuple[str, str, str]]:
+        """Return MQTT credential candidates in the order worth trying."""
+        candidates: list[tuple[str, str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add(
+            username: str | None,
+            password: str | None,
+            label: str,
+        ) -> None:
+            if not username or not password:
+                return
+            key = (username, password)
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append((username, password, label))
+
+        add(self._active_username, self._active_password, "cached MQTT credentials")
+        add(
+            self._configured_username or self._api.username,
+            self._configured_password or token,
+            "configured MQTT credentials",
+        )
+        add(self._api.username, token, "AIRMON app credentials")
+        return candidates
+
+    async def _async_wait_for_connection(self) -> None:
+        """Wait for either a successful MQTT connection or a definite failure."""
+        connected_task = asyncio.create_task(self._connected_event.wait())
+        failed_task = asyncio.create_task(self._failed_event.wait())
+        try:
+            done, pending = await asyncio.wait(
+                {connected_task, failed_task},
+                timeout=10,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (connected_task, failed_task):
+                if not task.done():
+                    task.cancel()
+
+        if not done:
+            raise RuntimeError(
+                f"AIRMON MQTT connection timed out for {self._host}:{self._port}"
+            )
+
+        if failed_task in done and self._failed_event.is_set():
+            raise RuntimeError(self._last_failure or "AIRMON MQTT connection failed")

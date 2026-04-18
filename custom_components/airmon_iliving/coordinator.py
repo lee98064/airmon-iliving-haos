@@ -98,6 +98,7 @@ class AirmonDataUpdateCoordinator(DataUpdateCoordinator[dict[str, AirmonDevice]]
             await self.api.async_send_command(device.mac, payload)
             return
 
+        mqtt_payload = dict(payload)
         if action_key is not None and action_status is not None:
             action: dict[str, Any] = {
                 "key": action_key,
@@ -110,12 +111,22 @@ class AirmonDataUpdateCoordinator(DataUpdateCoordinator[dict[str, AirmonDevice]]
             if user_id is not None:
                 action["userId"] = user_id
 
-            payload["action"] = action
+            mqtt_payload["action"] = action
 
-        await self.mqtt.async_publish_json(
-            f"devices/{device.mac}/control/json",
-            payload,
-        )
+        try:
+            await self.mqtt.async_publish_json(
+                f"devices/{device.mac}/control/json",
+                mqtt_payload,
+            )
+            return
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "AIRMON MQTT control failed for %s; falling back to HTTP: %s",
+                device.mac,
+                err,
+            )
+
+        await self.api.async_send_command(device.mac, payload)
 
     async def _async_wait_for_updated_device(self, mac: str) -> AirmonDevice | None:
         """Fetch the updated device state after a command."""
