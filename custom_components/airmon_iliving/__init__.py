@@ -23,6 +23,7 @@ from .const import (
     CONF_AUTH_CLIENT_SECRET,
     CONF_AUTH_GRANT_TYPE,
     CONF_AUTH_PROVIDER,
+    CONF_CWA_AUTHORIZATION,
     CONF_ENABLE_EXPERIMENTAL_CONTROL,
     CONF_ENABLE_PUSH,
     CONF_MQTT_HOST,
@@ -126,6 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         auth_client_secret=entry.options.get(CONF_AUTH_CLIENT_SECRET),
         auth_grant_type=entry.options.get(CONF_AUTH_GRANT_TYPE),
         auth_provider=entry.options.get(CONF_AUTH_PROVIDER),
+        cwa_authorization=entry.options.get(CONF_CWA_AUTHORIZATION),
     )
     coordinator = AirmonDataUpdateCoordinator(
         hass=hass,

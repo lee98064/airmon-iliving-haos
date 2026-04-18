@@ -28,6 +28,7 @@ CONF_AUTH_CLIENT_ID = "auth_client_id"
 CONF_AUTH_CLIENT_SECRET = "auth_client_secret"
 CONF_AUTH_GRANT_TYPE = "auth_grant_type"
 CONF_AUTH_PROVIDER = "auth_provider"
+CONF_CWA_AUTHORIZATION = "cwa_authorization"
 CONF_ENABLE_EXPERIMENTAL_CONTROL = "enable_experimental_control"
 CONF_ENABLE_PUSH = "enable_push"
 CONF_MQTT_HOST = "mqtt_host"
@@ -69,8 +70,9 @@ DISCOVERED_ENDPOINTS = {
     "refresh_token": "api/refresh_token",
     "devices": "/v1/devices",
     "device_by_mac": "/v1/devices/mac/{mac}",
-    "devices_power_usage": "/v1/devices/power-usage",
+    "device_power_usage": "/v1/devices/mac/{mac}/power-usage",
     "devices_firmware": "/v1/devices/firmware",
+    "families": "/v1/families",
     "schedules": "/v1/schedules",
     "messages": "/v1/messages",
 }

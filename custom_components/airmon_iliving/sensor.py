@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -24,6 +24,7 @@ async def async_setup_entry(
     for device_id in coordinator.data:
         entities.extend(
             [
+                AirmonIndoorTemperatureSensor(coordinator, device_id),
                 AirmonOutdoorTemperatureSensor(coordinator, device_id),
                 AirmonPowerUsageSensor(coordinator, device_id),
                 AirmonFirmwareSensor(coordinator, device_id),
@@ -55,6 +56,24 @@ class AirmonOutdoorTemperatureSensor(AirmonEntity, SensorEntity):
         return self.device.outdoor_temperature
 
 
+class AirmonIndoorTemperatureSensor(AirmonEntity, SensorEntity):
+    """Indoor temperature sensor."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{self.device.unique_id}_indoor_temperature"
+        self._attr_name = "Indoor Temperature"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the indoor temperature."""
+        return self.device.current_temperature
+
+
 class AirmonFirmwareSensor(AirmonEntity, SensorEntity):
     """Firmware version sensor."""
 
@@ -75,7 +94,10 @@ class AirmonFirmwareSensor(AirmonEntity, SensorEntity):
 class AirmonPowerUsageSensor(AirmonEntity, SensorEntity):
     """Power usage sensor."""
 
+    _attr_device_class = SensorDeviceClass.ENERGY
     _attr_icon = "mdi:flash"
+    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
+    _attr_suggested_display_precision = 1
 
     def __init__(self, coordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)

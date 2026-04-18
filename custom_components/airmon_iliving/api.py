@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
 import json
 import logging
 from typing import Any
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import aiohttp
 from yarl import URL
@@ -25,6 +27,38 @@ from .models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_CWA_BASE_URL = "https://opendata.cwa.gov.tw/api"
+_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+_WEATHER_CACHE_TTL = timedelta(hours=1)
+_CWA_CITY_DATASET_CODES = {
+    "基隆市": "F-D0047-049",
+    "臺北市": "F-D0047-061",
+    "台北市": "F-D0047-061",
+    "新北市": "F-D0047-069",
+    "桃園市": "F-D0047-005",
+    "新竹市": "F-D0047-053",
+    "新竹縣": "F-D0047-009",
+    "苗栗縣": "F-D0047-013",
+    "臺中市": "F-D0047-073",
+    "台中市": "F-D0047-073",
+    "彰化縣": "F-D0047-017",
+    "南投縣": "F-D0047-021",
+    "雲林縣": "F-D0047-025",
+    "嘉義市": "F-D0047-057",
+    "嘉義縣": "F-D0047-029",
+    "臺南市": "F-D0047-077",
+    "台南市": "F-D0047-077",
+    "高雄市": "F-D0047-065",
+    "屏東縣": "F-D0047-033",
+    "臺東縣": "F-D0047-037",
+    "台東縣": "F-D0047-037",
+    "花蓮縣": "F-D0047-041",
+    "宜蘭縣": "F-D0047-001",
+    "澎湖縣": "F-D0047-045",
+    "金門縣": "F-D0047-085",
+    "連江縣": "F-D0047-081",
+}
 
 _ACCESS_TOKEN_KEYS = (
     "access_token",
@@ -63,6 +97,7 @@ class AirmonApiClient:
         auth_client_secret: str | None = None,
         auth_grant_type: str | None = None,
         auth_provider: str | None = None,
+        cwa_authorization: str | None = None,
     ) -> None:
         self._session = session
         self._username = username
@@ -72,9 +107,11 @@ class AirmonApiClient:
         self._auth_client_secret = auth_client_secret or None
         self._auth_grant_type = auth_grant_type or DEFAULT_AUTH_GRANT_TYPE
         self._auth_provider = auth_provider or None
+        self._cwa_authorization = cwa_authorization or None
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._session_authenticated = False
+        self._weather_cache: dict[str, tuple[datetime, float | None]] = {}
 
     async def async_close(self) -> None:
         """Close the client."""
@@ -138,47 +175,92 @@ class AirmonApiClient:
         """Fetch and normalize devices from the cloud API."""
         payload = await self._async_request("GET", "/v1/devices")
         devices = self._normalize_devices(payload)
+        family_locations = await self.async_get_family_locations()
 
         try:
-            power_usage = await self.async_get_power_usage()
+            power_usage = await self.async_get_power_usage(devices)
         except AirmonApiError as err:
             _LOGGER.debug("Power usage endpoint unavailable: %s", err)
             power_usage = {}
 
+        outdoor_temperatures = await self.async_get_outdoor_temperatures(family_locations)
         merged: list[AirmonDevice] = []
         for device in devices:
             if device.mac in power_usage:
                 device.power_usage = power_usage[device.mac]
+            if device.family_id and device.family_id in outdoor_temperatures:
+                device.outdoor_temperature = outdoor_temperatures[device.family_id]
             merged.append(device)
 
         return merged
 
-    async def async_get_power_usage(self) -> dict[str, float]:
-        """Fetch power usage by device MAC if the endpoint is accessible."""
-        payload = await self._async_request("GET", "/v1/devices/power-usage")
+    async def async_get_power_usage(
+        self,
+        devices: list[AirmonDevice],
+    ) -> dict[str, float]:
+        """Fetch per-device monthly energy usage by device MAC."""
         mapping: dict[str, float] = {}
-        for device_payload in extract_device_payloads(payload):
-            device = AirmonDevice.from_mapping(device_payload)
-            if device is None or device.power_usage is None:
-                continue
-            mapping[device.mac] = device.power_usage
 
-        if mapping:
-            return mapping
+        today = date.today()
+        params = {
+            "timeUnit": "Month",
+            "startDate": date(today.year, 1, 1).isoformat(),
+            "endDate": today.isoformat(),
+        }
 
-        # Some backends may return a lighter payload containing only usage records.
-        records = payload if isinstance(payload, list) else [payload]
-        for record in records:
-            if not isinstance(record, dict):
+        for device in devices:
+            try:
+                payload = await self._async_request(
+                    "GET",
+                    f"/v1/devices/mac/{device.mac}/power-usage",
+                    params=params,
+                )
+            except AirmonApiError as err:
+                _LOGGER.debug("Power usage unavailable for %s: %s", device.mac, err)
                 continue
-            mac = coerce_text(extract_first(record, ["mac", "deviceMac", "device_mac"]))
-            usage = coerce_float(
-                extract_first(record, ["powerUsage", "usage", "value", "power_usage"])
-            )
-            if mac and usage is not None:
-                mapping[mac] = usage
+
+            usage = self._extract_power_usage_value(payload)
+            if usage is None:
+                continue
+            mapping[device.mac] = usage
 
         return mapping
+
+    async def async_get_family_locations(self) -> dict[str, dict[str, Any]]:
+        """Fetch family metadata keyed by family id."""
+        try:
+            payload = await self._async_request("GET", "/v1/families")
+        except AirmonApiError as err:
+            _LOGGER.debug("Family endpoint unavailable: %s", err)
+            return {}
+
+        families = payload.get("families") if isinstance(payload, dict) else None
+        if not isinstance(families, list):
+            return {}
+
+        mapping: dict[str, dict[str, Any]] = {}
+        for family in families:
+            if not isinstance(family, dict):
+                continue
+            family_id = coerce_text(extract_first(family, ["id", "familyId"]))
+            location = family.get("location")
+            if family_id is None or not isinstance(location, dict):
+                continue
+            mapping[family_id] = location
+
+        return mapping
+
+    async def async_get_outdoor_temperatures(
+        self,
+        family_locations: dict[str, dict[str, Any]],
+    ) -> dict[str, float]:
+        """Fetch outdoor temperatures keyed by family id."""
+        temperatures: dict[str, float] = {}
+        for family_id, location in family_locations.items():
+            temperature = await self._async_get_outdoor_temperature(location)
+            if temperature is not None:
+                temperatures[family_id] = temperature
+        return temperatures
 
     async def async_get_device(self, mac: str) -> AirmonDevice | None:
         """Fetch a single device by MAC address."""
@@ -187,6 +269,229 @@ class AirmonApiClient:
         if devices:
             return devices[0]
         return None
+
+    async def _async_get_outdoor_temperature(
+        self,
+        location: dict[str, Any],
+    ) -> float | None:
+        """Return the cached or freshly fetched outdoor temperature."""
+        city = self._normalize_city_name(coerce_text(location.get("city")))
+        district = coerce_text(location.get("district"))
+        cache_key = f"{city or ''}|{district or ''}"
+        now = datetime.now(UTC)
+
+        if cache_key in self._weather_cache:
+            cached_at, cached_value = self._weather_cache[cache_key]
+            if now - cached_at < _WEATHER_CACHE_TTL:
+                return cached_value
+
+        temperature = await self._async_fetch_cwa_temperature(city, district)
+        if temperature is None:
+            temperature = await self._async_fetch_open_meteo_temperature(location)
+
+        self._weather_cache[cache_key] = (now, temperature)
+        return temperature
+
+    async def _async_fetch_cwa_temperature(
+        self,
+        city: str | None,
+        district: str | None,
+    ) -> float | None:
+        """Fetch outdoor temperature from the CWA township forecast."""
+        if city is None or district is None:
+            return None
+
+        dataset_code = _CWA_CITY_DATASET_CODES.get(city)
+        if dataset_code is None or self._cwa_authorization is None:
+            return None
+
+        payload = await self._async_external_request(
+            "GET",
+            f"{_CWA_BASE_URL}/v1/rest/datastore/{dataset_code}",
+            params={
+                "ElementName": "溫度,天氣現象",
+                "LocationName": district,
+                "uid": uuid4().hex,
+            },
+            headers={"Authorization": self._cwa_authorization},
+        )
+        return self._extract_cwa_temperature(payload, district)
+
+    async def _async_fetch_open_meteo_temperature(
+        self,
+        location: dict[str, Any],
+    ) -> float | None:
+        """Fallback outdoor temperature using coordinates when CWA fails."""
+        latitude = coerce_float(location.get("latitude"))
+        longitude = coerce_float(location.get("longitude"))
+        if latitude is None or longitude is None:
+            return None
+
+        payload = await self._async_external_request(
+            "GET",
+            _OPEN_METEO_URL,
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m",
+                "timezone": "auto",
+            },
+        )
+        if not isinstance(payload, dict):
+            return None
+
+        current = payload.get("current")
+        if isinstance(current, dict):
+            temperature = coerce_float(current.get("temperature_2m"))
+            if temperature is not None:
+                return temperature
+
+        current_weather = payload.get("current_weather")
+        if isinstance(current_weather, dict):
+            temperature = coerce_float(current_weather.get("temperature"))
+            if temperature is not None:
+                return temperature
+
+        return None
+
+    async def _async_external_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Run an external HTTP request without AIRMON auth handling."""
+        request_headers = {"Accept": "application/json"}
+        if headers:
+            request_headers.update(headers)
+
+        try:
+            async with self._session.request(
+                method=method,
+                url=url,
+                headers=request_headers,
+                params=params,
+                timeout=DEFAULT_TIMEOUT,
+            ) as response:
+                payload = await self._decode_response(response)
+        except aiohttp.ClientError as err:
+            _LOGGER.debug("External request failed: %s %s -> %s", method, url, err)
+            return None
+
+        if 200 <= response.status < 300:
+            return payload
+
+        _LOGGER.debug(
+            "External request returned %s for %s: %s",
+            response.status,
+            url,
+            self._extract_error_message(payload),
+        )
+        return None
+
+    def _extract_power_usage_value(self, payload: Any) -> float | None:
+        """Extract the latest month total from a power usage payload."""
+        items = extract_first(payload, ["items"])
+        if isinstance(items, list):
+            for item in reversed(items):
+                if not isinstance(item, dict):
+                    continue
+                usage = coerce_float(extract_first(item, ["wh", "powerUsage", "value"]))
+                if usage is not None:
+                    return usage
+
+        return coerce_float(extract_first(payload, ["wh", "powerUsage", "value"]))
+
+    def _extract_cwa_temperature(self, payload: Any, district: str) -> float | None:
+        """Extract the first township temperature from a CWA response."""
+        if not isinstance(payload, dict):
+            return None
+
+        records = payload.get("records")
+        if not isinstance(records, dict):
+            return None
+
+        locations = records.get("Locations") or records.get("locations")
+        if not isinstance(locations, list):
+            locations = [locations] if isinstance(locations, dict) else []
+
+        for locations_item in locations:
+            if not isinstance(locations_item, dict):
+                continue
+
+            towns = locations_item.get("Location") or locations_item.get("location")
+            if not isinstance(towns, list):
+                towns = [towns] if isinstance(towns, dict) else []
+
+            for town in towns:
+                if not isinstance(town, dict):
+                    continue
+                location_name = coerce_text(
+                    town.get("LocationName") or town.get("locationName")
+                )
+                if location_name not in {district, self._normalize_town_name(district)}:
+                    continue
+
+                weather_elements = (
+                    town.get("WeatherElement") or town.get("weatherElement")
+                )
+                if not isinstance(weather_elements, list):
+                    weather_elements = (
+                        [weather_elements] if isinstance(weather_elements, dict) else []
+                    )
+
+                for weather_element in weather_elements:
+                    if not isinstance(weather_element, dict):
+                        continue
+                    element_name = coerce_text(
+                        weather_element.get("ElementName")
+                        or weather_element.get("elementName")
+                    )
+                    if element_name not in {"溫度", "Temperature"}:
+                        continue
+
+                    times = weather_element.get("Time") or weather_element.get("time")
+                    if not isinstance(times, list):
+                        times = [times] if isinstance(times, dict) else []
+
+                    for time_item in times:
+                        if not isinstance(time_item, dict):
+                            continue
+                        element_values = (
+                            time_item.get("ElementValue")
+                            or time_item.get("elementValue")
+                        )
+                        if not isinstance(element_values, list):
+                            element_values = (
+                                [element_values]
+                                if isinstance(element_values, dict)
+                                else []
+                            )
+
+                        for element_value in element_values:
+                            if not isinstance(element_value, dict):
+                                continue
+                            temperature = coerce_float(
+                                extract_first(element_value, ["Temperature", "value"])
+                            )
+                            if temperature is not None:
+                                return temperature
+
+        return None
+
+    def _normalize_city_name(self, value: str | None) -> str | None:
+        """Normalize Taiwan city names for dataset lookup."""
+        if value is None:
+            return None
+        return value.replace("台", "臺")
+
+    def _normalize_town_name(self, value: str | None) -> str | None:
+        """Normalize township names for comparison."""
+        if value is None:
+            return None
+        return value.replace("台", "臺")
 
     async def async_send_command(self, mac: str, command: dict[str, Any]) -> Any:
         """Send an experimental device command."""
@@ -368,6 +673,7 @@ class AirmonApiClient:
         method: str,
         path: str,
         json_payload: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
         auth_required: bool = True,
         allow_retry: bool = True,
     ) -> Any:
@@ -387,6 +693,7 @@ class AirmonApiClient:
                 url=url,
                 headers=headers,
                 json=json_payload,
+                params=params,
                 timeout=DEFAULT_TIMEOUT,
             ) as response:
                 payload = await self._decode_response(response)
@@ -413,6 +720,7 @@ class AirmonApiClient:
                 method,
                 path,
                 json_payload=json_payload,
+                params=params,
                 auth_required=auth_required,
                 allow_retry=False,
             )

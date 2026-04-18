@@ -43,6 +43,7 @@ CURRENT_TEMP_CANDIDATES = (
     "indoorTemperature",
     "indoor_temperature",
     "roomTemperature",
+    "roomAirTemp",
 )
 TARGET_TEMP_CANDIDATES = (
     "setPoint",

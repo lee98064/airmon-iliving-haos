@@ -22,6 +22,7 @@ from .const import (
     CONF_AUTH_CLIENT_SECRET,
     CONF_AUTH_GRANT_TYPE,
     CONF_AUTH_PROVIDER,
+    CONF_CWA_AUTHORIZATION,
     CONF_ENABLE_EXPERIMENTAL_CONTROL,
     CONF_ENABLE_PUSH,
     CONF_MQTT_HOST,
@@ -73,6 +74,10 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_AUTH_PROVIDER,
                 default=_default_provider(defaults),
+            ): str,
+            vol.Optional(
+                CONF_CWA_AUTHORIZATION,
+                default=defaults.get(CONF_CWA_AUTHORIZATION, ""),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
@@ -134,6 +139,10 @@ def _options_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_AUTH_PROVIDER,
                 default=defaults.get(CONF_AUTH_PROVIDER, ""),
+            ): str,
+            vol.Optional(
+                CONF_CWA_AUTHORIZATION,
+                default=defaults.get(CONF_CWA_AUTHORIZATION, ""),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
@@ -202,6 +211,7 @@ class AirmonConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AUTH_CLIENT_SECRET: user_input[CONF_AUTH_CLIENT_SECRET],
                     CONF_AUTH_GRANT_TYPE: user_input[CONF_AUTH_GRANT_TYPE],
                     CONF_AUTH_PROVIDER: user_input[CONF_AUTH_PROVIDER],
+                    CONF_CWA_AUTHORIZATION: user_input[CONF_CWA_AUTHORIZATION],
                     CONF_POLL_INTERVAL: user_input[CONF_POLL_INTERVAL],
                     CONF_ENABLE_EXPERIMENTAL_CONTROL: user_input[
                         CONF_ENABLE_EXPERIMENTAL_CONTROL
@@ -278,6 +288,9 @@ class AirmonOptionsFlow(config_entries.OptionsFlow):
                 CONF_AUTH_GRANT_TYPE, "password"
             ),
             CONF_AUTH_PROVIDER: self.config_entry.options.get(CONF_AUTH_PROVIDER, ""),
+            CONF_CWA_AUTHORIZATION: self.config_entry.options.get(
+                CONF_CWA_AUTHORIZATION, ""
+            ),
             CONF_POLL_INTERVAL: self.config_entry.options.get(
                 CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL
             ),
