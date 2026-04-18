@@ -43,9 +43,56 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _default_str(
+    defaults: dict[str, Any],
+    key: str,
+    fallback: str = "",
+) -> str:
+    """Return a string default safe for schema serialization."""
+    value = defaults.get(key, fallback)
+    if value is None:
+        return fallback
+    return str(value)
+
+
+def _default_bool(
+    defaults: dict[str, Any],
+    key: str,
+    fallback: bool = False,
+) -> bool:
+    """Return a boolean default safe for schema serialization."""
+    value = defaults.get(key, fallback)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return fallback
+
+
+def _default_int(
+    defaults: dict[str, Any],
+    key: str,
+    fallback: int,
+) -> int:
+    """Return an integer default safe for schema serialization."""
+    value = defaults.get(key, fallback)
+    if value is None:
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _default_provider(defaults: dict[str, Any]) -> str:
     """Return the stored provider override if one exists."""
-    return str(defaults.get(CONF_AUTH_PROVIDER, ""))
+    return _default_str(defaults, CONF_AUTH_PROVIDER, "")
 
 
 def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -53,23 +100,35 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     defaults = defaults or {}
     return vol.Schema(
         {
-            vol.Required(CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")): str,
-            vol.Required(CONF_PASSWORD, default=defaults.get(CONF_PASSWORD, "")): str,
+            vol.Required(CONF_USERNAME, default=_default_str(defaults, CONF_USERNAME)): str,
+            vol.Required(CONF_PASSWORD, default=_default_str(defaults, CONF_PASSWORD)): str,
             vol.Optional(
                 CONF_API_BASE_URL,
-                default=defaults.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
+                default=_default_str(
+                    defaults,
+                    CONF_API_BASE_URL,
+                    DEFAULT_API_BASE_URL,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_CLIENT_ID,
-                default=defaults.get(CONF_AUTH_CLIENT_ID, DEFAULT_AUTH_CLIENT_ID),
+                default=_default_str(
+                    defaults,
+                    CONF_AUTH_CLIENT_ID,
+                    DEFAULT_AUTH_CLIENT_ID,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_CLIENT_SECRET,
-                default=defaults.get(CONF_AUTH_CLIENT_SECRET, ""),
+                default=_default_str(defaults, CONF_AUTH_CLIENT_SECRET, ""),
             ): str,
             vol.Optional(
                 CONF_AUTH_GRANT_TYPE,
-                default=defaults.get(CONF_AUTH_GRANT_TYPE, DEFAULT_AUTH_GRANT_TYPE),
+                default=_default_str(
+                    defaults,
+                    CONF_AUTH_GRANT_TYPE,
+                    DEFAULT_AUTH_GRANT_TYPE,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_PROVIDER,
@@ -77,39 +136,47 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): str,
             vol.Optional(
                 CONF_CWA_AUTHORIZATION,
-                default=defaults.get(CONF_CWA_AUTHORIZATION, ""),
+                default=_default_str(defaults, CONF_CWA_AUTHORIZATION, ""),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
-                default=defaults.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+                default=_default_int(
+                    defaults,
+                    CONF_POLL_INTERVAL,
+                    DEFAULT_POLL_INTERVAL,
+                ),
             ): vol.All(int, vol.Range(min=15, max=3600)),
             vol.Optional(
                 CONF_ENABLE_EXPERIMENTAL_CONTROL,
-                default=defaults.get(CONF_ENABLE_EXPERIMENTAL_CONTROL, False),
+                default=_default_bool(
+                    defaults,
+                    CONF_ENABLE_EXPERIMENTAL_CONTROL,
+                    False,
+                ),
             ): bool,
             vol.Optional(
                 CONF_ENABLE_PUSH,
-                default=defaults.get(CONF_ENABLE_PUSH, False),
+                default=_default_bool(defaults, CONF_ENABLE_PUSH, False),
             ): bool,
             vol.Optional(
                 CONF_MQTT_HOST,
-                default=defaults.get(CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
+                default=_default_str(defaults, CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
             ): str,
             vol.Optional(
                 CONF_MQTT_PORT,
-                default=defaults.get(CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
+                default=_default_int(defaults, CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
             ): vol.All(int, vol.Range(min=1, max=65535)),
             vol.Optional(
                 CONF_MQTT_USERNAME,
-                default=defaults.get(CONF_MQTT_USERNAME, ""),
+                default=_default_str(defaults, CONF_MQTT_USERNAME, ""),
             ): str,
             vol.Optional(
                 CONF_MQTT_PASSWORD,
-                default=defaults.get(CONF_MQTT_PASSWORD, ""),
+                default=_default_str(defaults, CONF_MQTT_PASSWORD, ""),
             ): str,
             vol.Optional(
                 CONF_MQTT_TLS,
-                default=defaults.get(CONF_MQTT_TLS, False),
+                default=_default_bool(defaults, CONF_MQTT_TLS, False),
             ): bool,
         }
     )
@@ -122,59 +189,79 @@ def _options_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         {
             vol.Optional(
                 CONF_API_BASE_URL,
-                default=defaults.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
+                default=_default_str(
+                    defaults,
+                    CONF_API_BASE_URL,
+                    DEFAULT_API_BASE_URL,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_CLIENT_ID,
-                default=defaults.get(CONF_AUTH_CLIENT_ID, DEFAULT_AUTH_CLIENT_ID),
+                default=_default_str(
+                    defaults,
+                    CONF_AUTH_CLIENT_ID,
+                    DEFAULT_AUTH_CLIENT_ID,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_CLIENT_SECRET,
-                default=defaults.get(CONF_AUTH_CLIENT_SECRET, ""),
+                default=_default_str(defaults, CONF_AUTH_CLIENT_SECRET, ""),
             ): str,
             vol.Optional(
                 CONF_AUTH_GRANT_TYPE,
-                default=defaults.get(CONF_AUTH_GRANT_TYPE, DEFAULT_AUTH_GRANT_TYPE),
+                default=_default_str(
+                    defaults,
+                    CONF_AUTH_GRANT_TYPE,
+                    DEFAULT_AUTH_GRANT_TYPE,
+                ),
             ): str,
             vol.Optional(
                 CONF_AUTH_PROVIDER,
-                default=defaults.get(CONF_AUTH_PROVIDER, ""),
+                default=_default_str(defaults, CONF_AUTH_PROVIDER, ""),
             ): str,
             vol.Optional(
                 CONF_CWA_AUTHORIZATION,
-                default=defaults.get(CONF_CWA_AUTHORIZATION, ""),
+                default=_default_str(defaults, CONF_CWA_AUTHORIZATION, ""),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
-                default=defaults.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+                default=_default_int(
+                    defaults,
+                    CONF_POLL_INTERVAL,
+                    DEFAULT_POLL_INTERVAL,
+                ),
             ): vol.All(int, vol.Range(min=15, max=3600)),
             vol.Optional(
                 CONF_ENABLE_EXPERIMENTAL_CONTROL,
-                default=defaults.get(CONF_ENABLE_EXPERIMENTAL_CONTROL, False),
+                default=_default_bool(
+                    defaults,
+                    CONF_ENABLE_EXPERIMENTAL_CONTROL,
+                    False,
+                ),
             ): bool,
             vol.Optional(
                 CONF_ENABLE_PUSH,
-                default=defaults.get(CONF_ENABLE_PUSH, False),
+                default=_default_bool(defaults, CONF_ENABLE_PUSH, False),
             ): bool,
             vol.Optional(
                 CONF_MQTT_HOST,
-                default=defaults.get(CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
+                default=_default_str(defaults, CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
             ): str,
             vol.Optional(
                 CONF_MQTT_PORT,
-                default=defaults.get(CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
+                default=_default_int(defaults, CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
             ): vol.All(int, vol.Range(min=1, max=65535)),
             vol.Optional(
                 CONF_MQTT_USERNAME,
-                default=defaults.get(CONF_MQTT_USERNAME, ""),
+                default=_default_str(defaults, CONF_MQTT_USERNAME, ""),
             ): str,
             vol.Optional(
                 CONF_MQTT_PASSWORD,
-                default=defaults.get(CONF_MQTT_PASSWORD, ""),
+                default=_default_str(defaults, CONF_MQTT_PASSWORD, ""),
             ): str,
             vol.Optional(
                 CONF_MQTT_TLS,
-                default=defaults.get(CONF_MQTT_TLS, False),
+                default=_default_bool(defaults, CONF_MQTT_TLS, False),
             ): bool,
         }
     )
@@ -280,34 +367,73 @@ class AirmonOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         current = {
-            CONF_AUTH_CLIENT_ID: self.config_entry.options.get(CONF_AUTH_CLIENT_ID, ""),
-            CONF_AUTH_CLIENT_SECRET: self.config_entry.options.get(
-                CONF_AUTH_CLIENT_SECRET, ""
+            CONF_AUTH_CLIENT_ID: _default_str(
+                self.config_entry.options,
+                CONF_AUTH_CLIENT_ID,
+                DEFAULT_AUTH_CLIENT_ID,
             ),
-            CONF_AUTH_GRANT_TYPE: self.config_entry.options.get(
-                CONF_AUTH_GRANT_TYPE, "password"
+            CONF_AUTH_CLIENT_SECRET: _default_str(
+                self.config_entry.options,
+                CONF_AUTH_CLIENT_SECRET,
+                "",
             ),
-            CONF_AUTH_PROVIDER: self.config_entry.options.get(CONF_AUTH_PROVIDER, ""),
-            CONF_CWA_AUTHORIZATION: self.config_entry.options.get(
-                CONF_CWA_AUTHORIZATION, ""
+            CONF_AUTH_GRANT_TYPE: _default_str(
+                self.config_entry.options,
+                CONF_AUTH_GRANT_TYPE,
+                DEFAULT_AUTH_GRANT_TYPE,
             ),
-            CONF_POLL_INTERVAL: self.config_entry.options.get(
-                CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL
+            CONF_AUTH_PROVIDER: _default_str(
+                self.config_entry.options,
+                CONF_AUTH_PROVIDER,
+                "",
             ),
-            CONF_ENABLE_EXPERIMENTAL_CONTROL: self.config_entry.options.get(
-                CONF_ENABLE_EXPERIMENTAL_CONTROL, False
+            CONF_CWA_AUTHORIZATION: _default_str(
+                self.config_entry.options,
+                CONF_CWA_AUTHORIZATION,
+                "",
             ),
-            CONF_ENABLE_PUSH: self.config_entry.options.get(CONF_ENABLE_PUSH, False),
-            CONF_MQTT_HOST: self.config_entry.options.get(
-                CONF_MQTT_HOST, DEFAULT_MQTT_HOST
+            CONF_POLL_INTERVAL: _default_int(
+                self.config_entry.options,
+                CONF_POLL_INTERVAL,
+                DEFAULT_POLL_INTERVAL,
             ),
-            CONF_MQTT_PORT: self.config_entry.options.get(
-                CONF_MQTT_PORT, DEFAULT_MQTT_PORT
+            CONF_ENABLE_EXPERIMENTAL_CONTROL: _default_bool(
+                self.config_entry.options,
+                CONF_ENABLE_EXPERIMENTAL_CONTROL,
+                False,
             ),
-            CONF_MQTT_USERNAME: self.config_entry.options.get(CONF_MQTT_USERNAME, ""),
-            CONF_MQTT_PASSWORD: self.config_entry.options.get(CONF_MQTT_PASSWORD, ""),
-            CONF_MQTT_TLS: self.config_entry.options.get(CONF_MQTT_TLS, False),
-            CONF_API_BASE_URL: self.config_entry.options.get(
+            CONF_ENABLE_PUSH: _default_bool(
+                self.config_entry.options,
+                CONF_ENABLE_PUSH,
+                False,
+            ),
+            CONF_MQTT_HOST: _default_str(
+                self.config_entry.options,
+                CONF_MQTT_HOST,
+                DEFAULT_MQTT_HOST,
+            ),
+            CONF_MQTT_PORT: _default_int(
+                self.config_entry.options,
+                CONF_MQTT_PORT,
+                DEFAULT_MQTT_PORT,
+            ),
+            CONF_MQTT_USERNAME: _default_str(
+                self.config_entry.options,
+                CONF_MQTT_USERNAME,
+                "",
+            ),
+            CONF_MQTT_PASSWORD: _default_str(
+                self.config_entry.options,
+                CONF_MQTT_PASSWORD,
+                "",
+            ),
+            CONF_MQTT_TLS: _default_bool(
+                self.config_entry.options,
+                CONF_MQTT_TLS,
+                False,
+            ),
+            CONF_API_BASE_URL: _default_str(
+                self.config_entry.options,
                 CONF_API_BASE_URL,
                 self.config_entry.data.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
             ),
