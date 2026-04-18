@@ -1,0 +1,14 @@
+{
+  "domain": "airmon_iliving",
+  "name": "AIRMON iLIVING",
+  "after_dependencies": ["http"],
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://airmon.iliving.app",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://airmon.iliving.app",
+  "loggers": ["custom_components.airmon_iliving"],
+  "requirements": ["paho-mqtt==2.1.0"],
+  "version": "0.2.0"
+}

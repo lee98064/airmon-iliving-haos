@@ -1,0 +1,27 @@
+name: "AIRMON Bridge"
+version: "0.2.0"
+slug: "airmon_bridge"
+description: "Local HAOS bridge for AIRMON iLIVING reverse-engineering and diagnostics."
+url: "https://airmon.iliving.app"
+startup: application
+boot: auto
+init: false
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
+ports:
+  8099/tcp: 8099
+webui: "http://[HOST]:[PORT:8099]"
+options:
+  username: ""
+  password: ""
+  api_base_url: "https://api.wificontrolbox.com"
+  experimental_control: false
+schema:
+  username: str
+  password: password
+  api_base_url: str
+  experimental_control: bool

@@ -1,0 +1,70 @@
+refresh:
+  name: Refresh devices
+  description: Trigger an immediate AIRMON cloud refresh for one entry or all loaded entries.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional config entry ID. Omit to refresh all AIRMON entries.
+      selector:
+        text:
+
+send_command:
+  name: Send experimental command
+  description: Send a raw JSON command payload to one AIRMON device.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional config entry ID. Omit to use the first loaded AIRMON entry.
+      selector:
+        text:
+    device_mac:
+      name: Device MAC
+      description: Device MAC address as shown in entity attributes.
+      required: true
+      selector:
+        text:
+    payload:
+      name: Payload
+      description: JSON object or JSON string to send to the experimental device endpoint.
+      required: true
+      selector:
+        object:
+
+raw_api_request:
+  name: Raw API request
+  description: Run an arbitrary REST request against the inferred AIRMON cloud API.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional config entry ID. Omit to use the first loaded AIRMON entry.
+      selector:
+        text:
+    method:
+      name: HTTP method
+      description: GET, POST, PUT, PATCH or DELETE.
+      required: true
+      selector:
+        select:
+          options:
+            - GET
+            - POST
+            - PUT
+            - PATCH
+            - DELETE
+    path:
+      name: API path
+      description: Relative path such as /v1/devices or /v1/devices/mac/AA11BB22.
+      required: true
+      selector:
+        text:
+    payload:
+      name: Payload
+      description: Optional JSON object or JSON string body.
+      selector:
+        object:
+    auth_required:
+      name: Auth required
+      description: Disable only when probing unauthenticated endpoints.
+      default: true
+      selector:
+        boolean:

@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AIRMON iLIVING",
+        "description": "使用從 Android APK 逆向出的雲端 API 進行連線。",
+        "data": {
+          "username": "電子郵件或手機",
+          "password": "密碼",
+          "api_base_url": "API 基底網址",
+          "poll_interval": "輪詢秒數",
+          "enable_experimental_control": "啟用實驗性控制",
+          "enable_push": "啟用 MQTT 推送",
+          "mqtt_host": "MQTT 主機",
+          "mqtt_port": "MQTT 連接埠",
+          "mqtt_username": "MQTT 帳號",
+          "mqtt_password": "MQTT 密碼",
+          "mqtt_tls": "使用 MQTT TLS"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "無法連線到 AIRMON 雲端 API。",
+      "invalid_auth": "帳號或密碼驗證失敗。",
+      "unknown": "發生未預期錯誤。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AIRMON iLIVING 選項",
+        "data": {
+          "api_base_url": "API 基底網址",
+          "poll_interval": "輪詢秒數",
+          "enable_experimental_control": "啟用實驗性控制",
+          "enable_push": "啟用 MQTT 推送",
+          "mqtt_host": "MQTT 主機",
+          "mqtt_port": "MQTT 連接埠",
+          "mqtt_username": "MQTT 帳號",
+          "mqtt_password": "MQTT 密碼",
+          "mqtt_tls": "使用 MQTT TLS"
+        }
+      }
+    }
+  }
+}

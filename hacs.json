@@ -1,0 +1,6 @@
+{
+  "name": "AIRMON iLIVING",
+  "render_readme": true,
+  "domains": ["airmon_iliving"],
+  "homeassistant": "2024.6.0"
+}

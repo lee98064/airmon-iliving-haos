@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AIRMON iLIVING",
+        "description": "Connect using the cloud API endpoints inferred from the Android APK.",
+        "data": {
+          "username": "Email or phone",
+          "password": "Password",
+          "api_base_url": "API base URL",
+          "poll_interval": "Polling interval (seconds)",
+          "enable_experimental_control": "Enable experimental control",
+          "enable_push": "Enable MQTT push",
+          "mqtt_host": "MQTT host",
+          "mqtt_port": "MQTT port",
+          "mqtt_username": "MQTT username",
+          "mqtt_password": "MQTT password",
+          "mqtt_tls": "Use MQTT TLS"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the AIRMON cloud API.",
+      "invalid_auth": "Authentication failed.",
+      "unknown": "Unexpected error."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AIRMON iLIVING options",
+        "data": {
+          "api_base_url": "API base URL",
+          "poll_interval": "Polling interval (seconds)",
+          "enable_experimental_control": "Enable experimental control",
+          "enable_push": "Enable MQTT push",
+          "mqtt_host": "MQTT host",
+          "mqtt_port": "MQTT port",
+          "mqtt_username": "MQTT username",
+          "mqtt_password": "MQTT password",
+          "mqtt_tls": "Use MQTT TLS"
+        }
+      }
+    }
+  }
+}
