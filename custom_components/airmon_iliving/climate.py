@@ -19,22 +19,28 @@ from .entity import AirmonEntity
 
 APP_TO_HA_HVAC = {
     "auto": HVACMode.AUTO,
+    "AUTO": HVACMode.AUTO,
     "cool": HVACMode.COOL,
     "cold": HVACMode.COOL,
+    "COOLING": HVACMode.COOL,
     "dry": HVACMode.DRY,
+    "DRY": HVACMode.DRY,
     "fan": HVACMode.FAN_ONLY,
     "fanonly": HVACMode.FAN_ONLY,
+    "FAN": HVACMode.FAN_ONLY,
     "heat": HVACMode.HEAT,
+    "HEATING": HVACMode.HEAT,
     "off": HVACMode.OFF,
     "poweroff": HVACMode.OFF,
+    "STOP": HVACMode.OFF,
 }
 
 HA_TO_APP_HVAC = {
-    HVACMode.AUTO: "auto",
-    HVACMode.COOL: "cool",
-    HVACMode.DRY: "dry",
-    HVACMode.FAN_ONLY: "fan",
-    HVACMode.HEAT: "heat",
+    HVACMode.AUTO: "AUTO",
+    HVACMode.COOL: "COOLING",
+    HVACMode.DRY: "DRY",
+    HVACMode.FAN_ONLY: "FAN",
+    HVACMode.HEAT: "HEATING",
 }
 
 SUPPORTED_HVAC_MODES = [
@@ -45,8 +51,8 @@ SUPPORTED_HVAC_MODES = [
     HVACMode.DRY,
     HVACMode.FAN_ONLY,
 ]
-KNOWN_FAN_MODES = ["auto", "low", "medium", "high"]
-KNOWN_SWING_MODES = ["stop", "auto", "p1", "p2", "p3", "p4", "p5"]
+KNOWN_FAN_MODES = ["AUTO", "LOW", "MID", "HI", "POWERFUL"]
+KNOWN_SWING_MODES = ["AUTO", "P1", "P2", "P3", "P4"]
 
 
 async def async_setup_entry(
@@ -88,10 +94,10 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def hvac_mode(self) -> HVACMode:
         """Return the current HVAC mode."""
-        if self.device.power is False:
+        if self.device.power is False or self.device.operation == "STOP":
             return HVACMode.OFF
 
-        mode = (self.device.hvac_mode or "").strip().lower()
+        mode = (self.device.operation_mode or self.device.hvac_mode or "").strip()
         return APP_TO_HA_HVAC.get(mode, HVACMode.OFF)
 
     @property
@@ -106,7 +112,7 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
         """Return current fan mode."""
         if self.device.fan_mode is None:
             return None
-        return self.device.fan_mode.strip().lower()
+        return self.device.fan_mode.strip().upper()
 
     @property
     def fan_modes(self) -> list[str] | None:
@@ -123,7 +129,7 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
         """Return current swing mode."""
         if self.device.swing_mode is None:
             return None
-        return self.device.swing_mode.strip().lower()
+        return self.device.swing_mode.strip().upper()
 
     @property
     def swing_modes(self) -> list[str] | None:
@@ -166,11 +172,17 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
 
     async def async_turn_on(self) -> None:
         """Turn the device on."""
-        await self.coordinator.async_send_device_command(self.device, {"power": True})
+        await self.coordinator.async_send_device_command(
+            self.device,
+            {"power": True, "operation": "OPERATION"},
+        )
 
     async def async_turn_off(self) -> None:
         """Turn the device off."""
-        await self.coordinator.async_send_device_command(self.device, {"power": False})
+        await self.coordinator.async_send_device_command(
+            self.device,
+            {"power": False, "operation": "STOP"},
+        )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature."""
@@ -178,7 +190,8 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
         if temperature is None:
             return
         await self.coordinator.async_send_device_command(
-            self.device, {"targetTemperature": temperature}
+            self.device,
+            {"setPoint": float(temperature)},
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -191,18 +204,27 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
             self.device,
             {
                 "power": True,
-                "mode": HA_TO_APP_HVAC[hvac_mode],
+                "operation": "OPERATION",
+                "operationMode": HA_TO_APP_HVAC[hvac_mode],
             },
         )
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set fan mode."""
         await self.coordinator.async_send_device_command(
-            self.device, {"fanSpeed": fan_mode}
+            self.device,
+            {"fanSpeed": fan_mode.strip().upper()},
         )
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set swing mode."""
-        await self.coordinator.async_send_device_command(
-            self.device, {"swingMode": swing_mode}
-        )
+        normalized = swing_mode.strip().upper()
+        payload: dict[str, Any]
+        if normalized == "AUTO":
+            payload = {"louverSwinging": "ON"}
+        else:
+            payload = {
+                "louverSwinging": "OFF",
+                "louverPosition": normalized,
+            }
+        await self.coordinator.async_send_device_command(self.device, payload)

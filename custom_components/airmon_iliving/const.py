@@ -6,7 +6,12 @@ from homeassistant.const import Platform
 
 DOMAIN = "airmon_iliving"
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.CLIMATE,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 DEFAULT_NAME = "AIRMON iLIVING"
 DEFAULT_API_BASE_URL = "https://api.wificontrolbox.com"
@@ -35,6 +40,20 @@ CONF_POLL_INTERVAL = "poll_interval"
 ATTR_DEVICE_MAC = "device_mac"
 ATTR_FAMILY_ID = "family_id"
 ATTR_HOME_LEAVE_MODE = "home_leave_mode"
+ATTR_ENERGY_SAVING = "energy_saving"
+ATTR_LEFT_RIGHT_SWING = "left_right_swing"
+ATTR_LOUVER_LEFT_RIGHT_FIXED_POSITION = "louver_left_right_fixed_position"
+ATTR_LOUVER_POSITION = "louver_position"
+ATTR_LOUVER_SWINGING = "louver_swinging"
+ATTR_MODE_3D_AUTO = "mode_3d_auto"
+ATTR_OPERATION = "operation"
+ATTR_OPERATION_MODE = "operation_mode"
+ATTR_POWERFUL_MODE = "powerful_mode"
+ATTR_SET_POINT = "set_point"
+ATTR_UPDATED_TIME = "updated_time"
+ATTR_AC_ERROR_CODE = "ac_error_code"
+ATTR_FILTER_EXPIRED = "filter_expired"
+ATTR_INDOOR_UNIT_VERSION = "indoor_unit_version"
 ATTR_RAW_PAYLOAD = "raw_payload"
 ATTR_SILENT_MODE = "silent_mode"
 

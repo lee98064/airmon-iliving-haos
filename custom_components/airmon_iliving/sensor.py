@@ -28,6 +28,9 @@ async def async_setup_entry(
                 AirmonPowerUsageSensor(coordinator, device_id),
                 AirmonFirmwareSensor(coordinator, device_id),
                 AirmonConnectionSensor(coordinator, device_id),
+                AirmonAcErrorCodeSensor(coordinator, device_id),
+                AirmonFilterStatusSensor(coordinator, device_id),
+                AirmonIndoorUnitVersionSensor(coordinator, device_id),
             ]
         )
 
@@ -104,3 +107,58 @@ class AirmonConnectionSensor(AirmonEntity, SensorEntity):
         if self.device.online is False:
             return "offline"
         return "unknown"
+
+
+class AirmonAcErrorCodeSensor(AirmonEntity, SensorEntity):
+    """Latest AC error code."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, coordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{self.device.unique_id}_ac_error_code"
+        self._attr_name = "AC Error Code"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the latest AC error code."""
+        return self.device.ac_error_code
+
+
+class AirmonFilterStatusSensor(AirmonEntity, SensorEntity):
+    """Filter expiration sensor."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:air-filter"
+
+    def __init__(self, coordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{self.device.unique_id}_filter_status"
+        self._attr_name = "Filter Status"
+
+    @property
+    def native_value(self) -> str:
+        """Return the current filter state."""
+        if self.device.filter_expired is True:
+            return "expired"
+        if self.device.filter_expired is False:
+            return "ok"
+        return "unknown"
+
+
+class AirmonIndoorUnitVersionSensor(AirmonEntity, SensorEntity):
+    """Indoor unit version sensor."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:chip"
+
+    def __init__(self, coordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{self.device.unique_id}_indoor_unit_version"
+        self._attr_name = "Indoor Unit Version"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the indoor unit firmware/version string."""
+        return self.device.indoor_unit_version
