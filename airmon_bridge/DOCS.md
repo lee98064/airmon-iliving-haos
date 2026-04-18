@@ -17,6 +17,9 @@
 - 直接檢查 `/v1/devices` 的真實回應格式
 - 在不改 Home Assistant integration 的情況下，先測試實驗性控制 payload
 - 幫你在 HAOS 環境裡先確認 APK 逆向出的端點是否真的可用
+- 預設已帶入 app 真實 `client_id` `cngP1ABZCe96KmyE` 與 `grant_type=password`
+- 一般情況不需要填 `auth_provider`
+- 只有當原廠後端改動時，才需要手動 override `auth_client_id` / `auth_client_secret` / `auth_grant_type` / `auth_provider`
 
 ## 注意
 

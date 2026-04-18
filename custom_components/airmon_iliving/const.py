@@ -10,12 +10,19 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH]
 
 DEFAULT_NAME = "AIRMON iLIVING"
 DEFAULT_API_BASE_URL = "https://api.wificontrolbox.com"
+DEFAULT_AUTH_CLIENT_ID = "cngP1ABZCe96KmyE"
+DEFAULT_AUTH_GRANT_TYPE = "password"
+DEFAULT_AUTH_REFRESH_GRANT_TYPE = "refresh_token"
 DEFAULT_MQTT_HOST = "appbroker.wificontrolbox.com"
 DEFAULT_MQTT_PORT = 1883
 DEFAULT_POLL_INTERVAL = 60
 DEFAULT_TIMEOUT = 30
 
 CONF_API_BASE_URL = "api_base_url"
+CONF_AUTH_CLIENT_ID = "auth_client_id"
+CONF_AUTH_CLIENT_SECRET = "auth_client_secret"
+CONF_AUTH_GRANT_TYPE = "auth_grant_type"
+CONF_AUTH_PROVIDER = "auth_provider"
 CONF_ENABLE_EXPERIMENTAL_CONTROL = "enable_experimental_control"
 CONF_ENABLE_PUSH = "enable_push"
 CONF_MQTT_HOST = "mqtt_host"

@@ -19,6 +19,10 @@ from .api import AirmonApiClient
 from .const import (
     ATTR_DEVICE_MAC,
     CONF_API_BASE_URL,
+    CONF_AUTH_CLIENT_ID,
+    CONF_AUTH_CLIENT_SECRET,
+    CONF_AUTH_GRANT_TYPE,
+    CONF_AUTH_PROVIDER,
     CONF_ENABLE_EXPERIMENTAL_CONTROL,
     CONF_ENABLE_PUSH,
     CONF_MQTT_HOST,
@@ -118,6 +122,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_API_BASE_URL,
             entry.data.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
         ),
+        auth_client_id=entry.options.get(CONF_AUTH_CLIENT_ID),
+        auth_client_secret=entry.options.get(CONF_AUTH_CLIENT_SECRET),
+        auth_grant_type=entry.options.get(CONF_AUTH_GRANT_TYPE),
+        auth_provider=entry.options.get(CONF_AUTH_PROVIDER),
     )
     coordinator = AirmonDataUpdateCoordinator(
         hass=hass,

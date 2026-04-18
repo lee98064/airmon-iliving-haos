@@ -18,6 +18,10 @@ from .api import (
 )
 from .const import (
     CONF_API_BASE_URL,
+    CONF_AUTH_CLIENT_ID,
+    CONF_AUTH_CLIENT_SECRET,
+    CONF_AUTH_GRANT_TYPE,
+    CONF_AUTH_PROVIDER,
     CONF_ENABLE_EXPERIMENTAL_CONTROL,
     CONF_ENABLE_PUSH,
     CONF_MQTT_HOST,
@@ -27,6 +31,8 @@ from .const import (
     CONF_MQTT_USERNAME,
     CONF_POLL_INTERVAL,
     DEFAULT_API_BASE_URL,
+    DEFAULT_AUTH_CLIENT_ID,
+    DEFAULT_AUTH_GRANT_TYPE,
     DEFAULT_MQTT_HOST,
     DEFAULT_MQTT_PORT,
     DEFAULT_POLL_INTERVAL,
@@ -34,6 +40,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _default_provider(defaults: dict[str, Any]) -> str:
+    """Return the stored provider override if one exists."""
+    return str(defaults.get(CONF_AUTH_PROVIDER, ""))
 
 
 def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -46,6 +57,22 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_API_BASE_URL,
                 default=defaults.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_CLIENT_ID,
+                default=defaults.get(CONF_AUTH_CLIENT_ID, DEFAULT_AUTH_CLIENT_ID),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_CLIENT_SECRET,
+                default=defaults.get(CONF_AUTH_CLIENT_SECRET, ""),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_GRANT_TYPE,
+                default=defaults.get(CONF_AUTH_GRANT_TYPE, DEFAULT_AUTH_GRANT_TYPE),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_PROVIDER,
+                default=_default_provider(defaults),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
@@ -91,6 +118,22 @@ def _options_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_API_BASE_URL,
                 default=defaults.get(CONF_API_BASE_URL, DEFAULT_API_BASE_URL),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_CLIENT_ID,
+                default=defaults.get(CONF_AUTH_CLIENT_ID, DEFAULT_AUTH_CLIENT_ID),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_CLIENT_SECRET,
+                default=defaults.get(CONF_AUTH_CLIENT_SECRET, ""),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_GRANT_TYPE,
+                default=defaults.get(CONF_AUTH_GRANT_TYPE, DEFAULT_AUTH_GRANT_TYPE),
+            ): str,
+            vol.Optional(
+                CONF_AUTH_PROVIDER,
+                default=defaults.get(CONF_AUTH_PROVIDER, ""),
             ): str,
             vol.Optional(
                 CONF_POLL_INTERVAL,
@@ -155,6 +198,10 @@ class AirmonConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_API_BASE_URL: user_input[CONF_API_BASE_URL],
                 }
                 options = {
+                    CONF_AUTH_CLIENT_ID: user_input[CONF_AUTH_CLIENT_ID],
+                    CONF_AUTH_CLIENT_SECRET: user_input[CONF_AUTH_CLIENT_SECRET],
+                    CONF_AUTH_GRANT_TYPE: user_input[CONF_AUTH_GRANT_TYPE],
+                    CONF_AUTH_PROVIDER: user_input[CONF_AUTH_PROVIDER],
                     CONF_POLL_INTERVAL: user_input[CONF_POLL_INTERVAL],
                     CONF_ENABLE_EXPERIMENTAL_CONTROL: user_input[
                         CONF_ENABLE_EXPERIMENTAL_CONTROL
@@ -187,11 +234,19 @@ class AirmonConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             username=user_input[CONF_USERNAME],
             password=user_input[CONF_PASSWORD],
             api_base_url=user_input[CONF_API_BASE_URL],
+            auth_client_id=user_input[CONF_AUTH_CLIENT_ID],
+            auth_client_secret=user_input[CONF_AUTH_CLIENT_SECRET],
+            auth_grant_type=user_input[CONF_AUTH_GRANT_TYPE],
+            auth_provider=user_input[CONF_AUTH_PROVIDER],
         )
         try:
             await api.async_test_connection()
-        except AirmonAuthenticationError:
-            errors["base"] = "invalid_auth"
+        except AirmonAuthenticationError as err:
+            message = str(err).lower()
+            if "client_id" in message:
+                errors["base"] = "invalid_client"
+            else:
+                errors["base"] = "invalid_auth"
             return False
         except AirmonConnectionError:
             errors["base"] = "cannot_connect"
@@ -215,6 +270,14 @@ class AirmonOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         current = {
+            CONF_AUTH_CLIENT_ID: self.config_entry.options.get(CONF_AUTH_CLIENT_ID, ""),
+            CONF_AUTH_CLIENT_SECRET: self.config_entry.options.get(
+                CONF_AUTH_CLIENT_SECRET, ""
+            ),
+            CONF_AUTH_GRANT_TYPE: self.config_entry.options.get(
+                CONF_AUTH_GRANT_TYPE, "password"
+            ),
+            CONF_AUTH_PROVIDER: self.config_entry.options.get(CONF_AUTH_PROVIDER, ""),
             CONF_POLL_INTERVAL: self.config_entry.options.get(
                 CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL
             ),

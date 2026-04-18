@@ -84,9 +84,32 @@
 - `mqtt_password`
 - `mqtt_tls`
 
+另外 auth 設定已補上：
+
+- `auth_client_id`
+- `auth_client_secret`
+- `auth_grant_type`
+- `auth_provider`
+
+目前 integration 已內建從 Flutter `libapp.so` 挖出的正式 app `client_id`:
+`cngP1ABZCe96KmyE`
+
+預設登入 payload 已改成 app 實際使用的格式：
+`{"email"|"phone": "...", "password": "...", "grant_type": "password", "client_id": "cngP1ABZCe96KmyE"}`
+
+通常不需要再手動填 `auth_provider`，保留它只是作為後端行為變動時的覆寫入口。
+
 預設 broker 會帶入 APK 內找到的 `appbroker.wificontrolbox.com`。如果你沒有填 MQTT 密碼，整合會先嘗試以 API access token 當作 MQTT 密碼。
 
 這個邏輯是依照 APK 字串與常見雲端 IoT 做法補上的 best-effort 實作，但因為目前沒有真實 broker 連線樣本，仍然可能需要你之後用實帳修正 port、認證方式或 topic 細節。
+
+## 目前已確認的登入限制
+
+直接對真實後端測試後，`/v1/users/auth` 目前已可確認不是單純 `email + password` 就能登入。
+
+後端在 `grantType=password` 流程下會要求有效的 `clientId`。也就是說，如果沒有 app 內建的 OAuth client 參數，就會被後端拒絕，而且這不是帳號密碼錯。
+
+我已經把整合與 bridge 都補成可手動輸入這些 auth 參數的版本，避免再把這類錯誤誤判成「帳密錯誤」。
 
 ## 目前限制
 

@@ -8,6 +8,10 @@
           "username": "電子郵件或手機",
           "password": "密碼",
           "api_base_url": "API 基底網址",
+          "auth_client_id": "驗證 client ID",
+          "auth_client_secret": "驗證 client secret",
+          "auth_grant_type": "驗證 grant type",
+          "auth_provider": "驗證 provider",
           "poll_interval": "輪詢秒數",
           "enable_experimental_control": "啟用實驗性控制",
           "enable_push": "啟用 MQTT 推送",
@@ -22,6 +26,7 @@
     "error": {
       "cannot_connect": "無法連線到 AIRMON 雲端 API。",
       "invalid_auth": "帳號或密碼驗證失敗。",
+      "invalid_client": "AIRMON 後端要求有效的 client ID。",
       "unknown": "發生未預期錯誤。"
     }
   },
@@ -31,6 +36,10 @@
         "title": "AIRMON iLIVING 選項",
         "data": {
           "api_base_url": "API 基底網址",
+          "auth_client_id": "驗證 client ID",
+          "auth_client_secret": "驗證 client secret",
+          "auth_grant_type": "驗證 grant type",
+          "auth_provider": "驗證 provider",
           "poll_interval": "輪詢秒數",
           "enable_experimental_control": "啟用實驗性控制",
           "enable_push": "啟用 MQTT 推送",

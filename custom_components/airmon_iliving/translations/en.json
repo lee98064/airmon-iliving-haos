@@ -8,6 +8,10 @@
           "username": "Email or phone",
           "password": "Password",
           "api_base_url": "API base URL",
+          "auth_client_id": "Auth client ID",
+          "auth_client_secret": "Auth client secret",
+          "auth_grant_type": "Auth grant type",
+          "auth_provider": "Auth provider",
           "poll_interval": "Polling interval (seconds)",
           "enable_experimental_control": "Enable experimental control",
           "enable_push": "Enable MQTT push",
@@ -22,6 +26,7 @@
     "error": {
       "cannot_connect": "Cannot connect to the AIRMON cloud API.",
       "invalid_auth": "Authentication failed.",
+      "invalid_client": "The AIRMON backend requires a valid client ID.",
       "unknown": "Unexpected error."
     }
   },
@@ -31,6 +36,10 @@
         "title": "AIRMON iLIVING options",
         "data": {
           "api_base_url": "API base URL",
+          "auth_client_id": "Auth client ID",
+          "auth_client_secret": "Auth client secret",
+          "auth_grant_type": "Auth grant type",
+          "auth_provider": "Auth provider",
           "poll_interval": "Polling interval (seconds)",
           "enable_experimental_control": "Enable experimental control",
           "enable_push": "Enable MQTT push",

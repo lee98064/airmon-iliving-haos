@@ -16,6 +16,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 LOGGER = logging.getLogger("airmon_bridge")
 
 OPTIONS_FILE = Path("/data/options.json")
+DEFAULT_AUTH_CLIENT_ID = "cngP1ABZCe96KmyE"
+DEFAULT_AUTH_GRANT_TYPE = "password"
+DEFAULT_AUTH_REFRESH_GRANT_TYPE = "refresh_token"
 
 
 def normalize_key(value: str) -> str:
@@ -71,21 +74,30 @@ class BridgeClient:
         self.username = options.get("username", "")
         self.password = options.get("password", "")
         self.api_base_url = options.get("api_base_url", "https://api.wificontrolbox.com").rstrip("/")
+        self.auth_client_id = options.get("auth_client_id") or DEFAULT_AUTH_CLIENT_ID
+        self.auth_client_secret = options.get("auth_client_secret") or None
+        self.auth_grant_type = options.get("auth_grant_type") or DEFAULT_AUTH_GRANT_TYPE
+        self.auth_provider = options.get("auth_provider") or None
         self.experimental_control = bool(options.get("experimental_control", False))
         self.access_token: str | None = None
         self.refresh_token: str | None = None
+        self.session_authenticated = False
 
     def authenticate(self) -> dict[str, Any]:
         if not self.username or not self.password:
             raise RuntimeError("Username and password must be configured in add-on options")
 
-        payloads = [
-            {"email": self.username, "password": self.password},
-            {"phone": self.username, "password": self.password},
-            {"account": self.username, "password": self.password},
-            {"username": self.username, "password": self.password},
-            {"user_id": self.username, "user_pwd": self.password},
-        ]
+        payloads: list[dict[str, Any]] = []
+        login_field = self._preferred_login_field(self.username)
+
+        for shared in (
+            self._auth_payload_shared_fields(),
+            self._auth_payload_shared_fields(camel_case=True),
+        ):
+            for field in dict.fromkeys((login_field, "email", "phone")):
+                payload = {**shared, field: self.username, "password": self.password}
+                if payload not in payloads:
+                    payloads.append(payload)
 
         last_error: Exception | None = None
         for payload in payloads:
@@ -96,7 +108,7 @@ class BridgeClient:
                 continue
 
             self._capture_tokens(response)
-            if self.access_token:
+            if self.access_token or self.session_authenticated:
                 return response
 
         raise RuntimeError(f"Authentication failed: {last_error or 'unknown error'}")
@@ -132,7 +144,7 @@ class BridgeClient:
         auth_required: bool = True,
         allow_retry: bool = True,
     ) -> Any:
-        if auth_required and not self.access_token:
+        if auth_required and not (self.access_token or self.session_authenticated):
             self.authenticate()
 
         url = urljoin(f"{self.api_base_url}/", path.lstrip("/"))
@@ -149,7 +161,12 @@ class BridgeClient:
         try:
             with urlopen(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
-                return json.loads(raw) if raw else {}
+                payload = json.loads(raw) if raw else {}
+                self._capture_tokens_from_headers(response.headers)
+                cookies = response.headers.get_all("Set-Cookie", [])
+                if cookies:
+                    self.session_authenticated = True
+                return payload
         except HTTPError as err:
             raw = err.read().decode("utf-8")
             try:
@@ -157,7 +174,15 @@ class BridgeClient:
             except json.JSONDecodeError:
                 error_payload = {"raw": raw}
             if err.code == 401 and auth_required and allow_retry:
-                self.refresh_access_token()
+                self.access_token = None
+                self.session_authenticated = False
+                if self.refresh_token:
+                    try:
+                        self.refresh_access_token()
+                    except Exception:  # noqa: BLE001
+                        self.authenticate()
+                else:
+                    self.authenticate()
                 return self.request(
                     method,
                     path,
@@ -175,17 +200,36 @@ class BridgeClient:
         if not self.refresh_token:
             raise RuntimeError("No refresh token available")
 
-        payloads = [
-            {"refresh_token": self.refresh_token},
-            {"refreshToken": self.refresh_token},
-            {"token": self.refresh_token},
+        attempts = [
+            (
+                "/v1/users/auth",
+                {
+                    **self._auth_payload_shared_fields(
+                        grant_type=DEFAULT_AUTH_REFRESH_GRANT_TYPE
+                    ),
+                    "refresh_token": self.refresh_token,
+                },
+            ),
+            (
+                "/v1/users/auth",
+                {
+                    **self._auth_payload_shared_fields(
+                        camel_case=True,
+                        grant_type=DEFAULT_AUTH_REFRESH_GRANT_TYPE,
+                    ),
+                    "refreshToken": self.refresh_token,
+                },
+            ),
+            ("api/refresh_token", {"refresh_token": self.refresh_token}),
+            ("api/refresh_token", {"refreshToken": self.refresh_token}),
+            ("api/refresh_token", {"token": self.refresh_token}),
         ]
 
-        for payload in payloads:
+        for path, payload in attempts:
             try:
                 response = self.request(
                     "POST",
-                    "api/refresh_token",
+                    path,
                     payload=payload,
                     auth_required=False,
                     allow_retry=False,
@@ -194,7 +238,7 @@ class BridgeClient:
                 continue
 
             self._capture_tokens(response)
-            if self.access_token:
+            if self.access_token or self.session_authenticated:
                 return
 
         raise RuntimeError("Unable to refresh access token")
@@ -204,8 +248,57 @@ class BridgeClient:
         refresh = coerce_text(extract_first(payload, ["refresh_token", "refreshToken"]))
         if access:
             self.access_token = access
+            self.session_authenticated = True
         if refresh:
             self.refresh_token = refresh
+
+    def _capture_tokens_from_headers(self, headers: Any) -> None:
+        authorization = headers.get("Authorization") or headers.get("authorization")
+        if isinstance(authorization, str) and authorization.startswith("Bearer "):
+            self.access_token = authorization.removeprefix("Bearer ").strip() or None
+
+        for header_name in ("X-Access-Token", "x-access-token", "access_token", "token"):
+            header_value = headers.get(header_name)
+            if isinstance(header_value, str) and header_value.strip():
+                self.access_token = header_value.strip()
+                break
+
+        for header_name in (
+            "X-Refresh-Token",
+            "x-refresh-token",
+            "refresh_token",
+            "refreshToken",
+        ):
+            header_value = headers.get(header_name)
+            if isinstance(header_value, str) and header_value.strip():
+                self.refresh_token = header_value.strip()
+                break
+
+        if self.access_token:
+            self.session_authenticated = True
+
+    def _preferred_login_field(self, username: str) -> str:
+        return "email" if "@" in username else "phone"
+
+    def _auth_payload_shared_fields(
+        self,
+        *,
+        camel_case: bool = False,
+        grant_type: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        client_id_key = "clientId" if camel_case else "client_id"
+        client_secret_key = "clientSecret" if camel_case else "client_secret"
+        grant_type_key = "grantType" if camel_case else "grant_type"
+        if self.auth_client_id:
+            payload[client_id_key] = self.auth_client_id
+        if self.auth_client_secret:
+            payload[client_secret_key] = self.auth_client_secret
+        if grant_type or self.auth_grant_type:
+            payload[grant_type_key] = grant_type or self.auth_grant_type
+        if self.auth_provider:
+            payload["provider"] = self.auth_provider
+        return payload
 
 
 class BridgeHandler(BaseHTTPRequestHandler):

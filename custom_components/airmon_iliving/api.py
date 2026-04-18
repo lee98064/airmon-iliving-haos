@@ -8,8 +8,14 @@ from typing import Any
 from urllib.parse import urljoin
 
 import aiohttp
+from yarl import URL
 
-from .const import DEFAULT_TIMEOUT
+from .const import (
+    DEFAULT_AUTH_CLIENT_ID,
+    DEFAULT_AUTH_GRANT_TYPE,
+    DEFAULT_AUTH_REFRESH_GRANT_TYPE,
+    DEFAULT_TIMEOUT,
+)
 from .models import (
     AirmonDevice,
     coerce_float,
@@ -53,13 +59,22 @@ class AirmonApiClient:
         username: str,
         password: str,
         api_base_url: str,
+        auth_client_id: str | None = None,
+        auth_client_secret: str | None = None,
+        auth_grant_type: str | None = None,
+        auth_provider: str | None = None,
     ) -> None:
         self._session = session
         self._username = username
         self._password = password
         self._api_base_url = api_base_url.rstrip("/")
+        self._auth_client_id = auth_client_id or DEFAULT_AUTH_CLIENT_ID
+        self._auth_client_secret = auth_client_secret or None
+        self._auth_grant_type = auth_grant_type or DEFAULT_AUTH_GRANT_TYPE
+        self._auth_provider = auth_provider or None
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+        self._session_authenticated = False
 
     async def async_close(self) -> None:
         """Close the client."""
@@ -78,7 +93,12 @@ class AirmonApiClient:
     async def async_test_connection(self) -> list[AirmonDevice]:
         """Authenticate and fetch the first device list."""
         await self.async_authenticate()
-        return await self.async_get_devices()
+        try:
+            return await self.async_get_devices()
+        except AirmonAuthenticationError as err:
+            raise AirmonConnectionError(
+                "Authenticated, but the device list request was rejected."
+            ) from err
 
     async def async_authenticate(self) -> None:
         """Authenticate against the cloud API."""
@@ -97,7 +117,16 @@ class AirmonApiClient:
 
             self._capture_tokens(response)
             if self._access_token:
+                self._session_authenticated = True
                 _LOGGER.debug("Authenticated with payload keys: %s", list(payload))
+                return
+
+            if self._has_session_cookies():
+                self._session_authenticated = True
+                _LOGGER.debug(
+                    "Authenticated with session cookies using payload keys: %s",
+                    list(payload),
+                )
                 return
 
         raise AirmonAuthenticationError(
@@ -196,20 +225,47 @@ class AirmonApiClient:
         )
 
     def _build_auth_payload_candidates(self) -> list[dict[str, Any]]:
-        """Return candidate login payloads inferred from the app."""
+        """Return login payloads matching the Flutter app."""
         username = self._username
         password = self._password
-        return [
-            {"email": username, "password": password},
-            {"phone": username, "password": password},
-            {"account": username, "password": password},
-            {"username": username, "password": password},
-            {"user": username, "password": password},
-            {"emailOrPhone": username, "password": password},
-            {"email": username, "user_pwd": password},
-            {"phone": username, "user_pwd": password},
-            {"user_id": username, "user_pwd": password},
-        ]
+        login_field = self._preferred_login_field(username)
+        payloads: list[dict[str, Any]] = []
+
+        for shared in (
+            self._auth_payload_shared_fields(),
+            self._auth_payload_shared_fields(camel_case=True),
+        ):
+            for field in dict.fromkeys((login_field, "email", "phone")):
+                payload = {**shared, field: username, "password": password}
+                if payload not in payloads:
+                    payloads.append(payload)
+
+        return payloads
+
+    def _preferred_login_field(self, username: str) -> str:
+        """Return the primary login key inferred from the identifier."""
+        return "email" if "@" in username else "phone"
+
+    def _auth_payload_shared_fields(
+        self,
+        *,
+        camel_case: bool = False,
+        grant_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Return shared auth fields for login and refresh requests."""
+        payload: dict[str, Any] = {}
+        client_id_key = "clientId" if camel_case else "client_id"
+        client_secret_key = "clientSecret" if camel_case else "client_secret"
+        grant_type_key = "grantType" if camel_case else "grant_type"
+        if self._auth_client_id:
+            payload[client_id_key] = self._auth_client_id
+        if self._auth_client_secret:
+            payload[client_secret_key] = self._auth_client_secret
+        if grant_type or self._auth_grant_type:
+            payload[grant_type_key] = grant_type or self._auth_grant_type
+        if self._auth_provider:
+            payload["provider"] = self._auth_provider
+        return payload
 
     def _capture_tokens(self, payload: Any) -> None:
         """Extract tokens from arbitrary login or refresh responses."""
@@ -220,6 +276,29 @@ class AirmonApiClient:
             self._access_token = access_token
         if refresh_token:
             self._refresh_token = refresh_token
+
+    def _capture_tokens_from_headers(self, headers: aiohttp.typedefs.LooseHeaders) -> None:
+        """Extract bearer or token headers if the backend uses headers instead of JSON."""
+        authorization = headers.get("Authorization") or headers.get("authorization")
+        if isinstance(authorization, str) and authorization.startswith("Bearer "):
+            self._access_token = authorization.removeprefix("Bearer ").strip() or None
+
+        for header_name in ("X-Access-Token", "x-access-token", "access_token", "token"):
+            header_value = headers.get(header_name)
+            if isinstance(header_value, str) and header_value.strip():
+                self._access_token = header_value.strip()
+                break
+
+        for header_name in (
+            "X-Refresh-Token",
+            "x-refresh-token",
+            "refresh_token",
+            "refreshToken",
+        ):
+            header_value = headers.get(header_name)
+            if isinstance(header_value, str) and header_value.strip():
+                self._refresh_token = header_value.strip()
+                break
 
     def _normalize_devices(self, payload: Any) -> list[AirmonDevice]:
         """Normalize arbitrary device payloads into device objects."""
@@ -240,17 +319,36 @@ class AirmonApiClient:
         if not self._refresh_token:
             raise AirmonAuthenticationError("No refresh token available")
 
-        payloads = [
-            {"refresh_token": self._refresh_token},
-            {"refreshToken": self._refresh_token},
-            {"token": self._refresh_token},
+        attempts = [
+            (
+                "/v1/users/auth",
+                {
+                    **self._auth_payload_shared_fields(
+                        grant_type=DEFAULT_AUTH_REFRESH_GRANT_TYPE
+                    ),
+                    "refresh_token": self._refresh_token,
+                },
+            ),
+            (
+                "/v1/users/auth",
+                {
+                    **self._auth_payload_shared_fields(
+                        camel_case=True,
+                        grant_type=DEFAULT_AUTH_REFRESH_GRANT_TYPE,
+                    ),
+                    "refreshToken": self._refresh_token,
+                },
+            ),
+            ("api/refresh_token", {"refresh_token": self._refresh_token}),
+            ("api/refresh_token", {"refreshToken": self._refresh_token}),
+            ("api/refresh_token", {"token": self._refresh_token}),
         ]
 
-        for payload in payloads:
+        for path, payload in attempts:
             try:
                 response = await self._async_request(
                     "POST",
-                    "api/refresh_token",
+                    path,
                     json_payload=payload,
                     auth_required=False,
                     allow_retry=False,
@@ -260,6 +358,7 @@ class AirmonApiClient:
 
             self._capture_tokens(response)
             if self._access_token:
+                self._session_authenticated = True
                 return
 
         raise AirmonAuthenticationError("Unable to refresh access token")
@@ -273,7 +372,7 @@ class AirmonApiClient:
         allow_retry: bool = True,
     ) -> Any:
         """Execute a JSON HTTP request."""
-        if auth_required and not self._access_token:
+        if auth_required and not (self._access_token or self._session_authenticated):
             await self.async_authenticate()
 
         headers: dict[str, str] = {"Accept": "application/json"}
@@ -291,6 +390,9 @@ class AirmonApiClient:
                 timeout=DEFAULT_TIMEOUT,
             ) as response:
                 payload = await self._decode_response(response)
+                self._capture_tokens_from_headers(response.headers)
+                if response.cookies:
+                    self._session_authenticated = True
         except aiohttp.ClientError as err:
             raise AirmonConnectionError(str(err)) from err
 
@@ -298,7 +400,15 @@ class AirmonApiClient:
             return payload
 
         if response.status == 401 and auth_required and allow_retry:
-            await self._async_refresh_token()
+            self._access_token = None
+            self._session_authenticated = False
+            if self._refresh_token:
+                try:
+                    await self._async_refresh_token()
+                except AirmonAuthenticationError:
+                    await self.async_authenticate()
+            else:
+                await self.async_authenticate()
             return await self._async_request(
                 method,
                 path,
@@ -338,3 +448,7 @@ class AirmonApiClient:
         if path.startswith("http://") or path.startswith("https://"):
             return path
         return urljoin(f"{self._api_base_url}/", path.lstrip("/"))
+
+    def _has_session_cookies(self) -> bool:
+        """Return True when the aiohttp session has cookies for the API host."""
+        return bool(self._session.cookie_jar.filter_cookies(URL(self._api_base_url)))
