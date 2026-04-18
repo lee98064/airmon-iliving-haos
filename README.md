@@ -45,7 +45,7 @@
 - Device polling
 - Climate entity
 - Outdoor temperature / power usage / firmware / connection sensors
-- Home Leave Mode / Silent Mode switches
+- Home Leave Mode / Silent Mode / Energy Saving / Powerful Mode / 3D Auto switches
 - 實驗性 REST control fallback
 - MQTT push client
 - `refresh` / `send_command` / `raw_api_request` 三個 Home Assistant service

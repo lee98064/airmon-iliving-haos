@@ -171,15 +171,14 @@ class AirmonMqttClient:
         self._last_failure = None
         self._hass.loop.call_soon_threadsafe(self._connected_event.set)
 
-        if not self._subscribe_updates:
-            return
-
-        topics = {"devices/+/#"}
-        topics.update(
+        topics = set(
             f"devices/{device.mac}/#"
             for device in self._coordinator.data.values()
             if device.mac
         )
+        if self._subscribe_updates:
+            topics.add("devices/+/#")
+
         for topic in topics:
             result, _mid = client.subscribe(topic)
             if result != mqtt.MQTT_ERR_SUCCESS:

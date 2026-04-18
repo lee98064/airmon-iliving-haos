@@ -33,8 +33,23 @@ async def async_setup_entry(
                     icon="mdi:home-export-outline",
                     attribute_name="home_leave_mode",
                     payload_key="homeLeave",
-                    payload_on="ON",
-                    payload_off="NORMAL",
+                    payload_on={"mode": "ON"},
+                    payload_off={"mode": "NORMAL"},
+                )
+            )
+
+        if coordinator.experimental_control or device.silent_mode is not None:
+            entities.append(
+                AirmonModeSwitch(
+                    coordinator=coordinator,
+                    device_id=device_id,
+                    unique_suffix="silent_mode",
+                    name="Silent Mode",
+                    icon="mdi:volume-off",
+                    attribute_name="silent_mode",
+                    payload_key="silentMode",
+                    payload_on={"mode": "ON"},
+                    payload_off={"mode": "NORMAL"},
                 )
             )
 
