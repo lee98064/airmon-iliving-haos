@@ -135,21 +135,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         poll_interval=entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
         experimental_control=entry.options.get(CONF_ENABLE_EXPERIMENTAL_CONTROL, False),
     )
+    mqtt_client = AirmonMqttClient(
+        hass=hass,
+        api=api,
+        coordinator=coordinator,
+        host=entry.options.get(CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
+        port=entry.options.get(CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
+        username=entry.options.get(CONF_MQTT_USERNAME),
+        password=entry.options.get(CONF_MQTT_PASSWORD),
+        use_tls=entry.options.get(CONF_MQTT_TLS, False),
+        subscribe_updates=entry.options.get(CONF_ENABLE_PUSH, False),
+    )
+    coordinator.mqtt = mqtt_client
 
     await coordinator.async_config_entry_first_refresh()
 
-    mqtt_client: AirmonMqttClient | None = None
     if entry.options.get(CONF_ENABLE_PUSH, False):
-        mqtt_client = AirmonMqttClient(
-            hass=hass,
-            api=api,
-            coordinator=coordinator,
-            host=entry.options.get(CONF_MQTT_HOST, DEFAULT_MQTT_HOST),
-            port=entry.options.get(CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
-            username=entry.options.get(CONF_MQTT_USERNAME),
-            password=entry.options.get(CONF_MQTT_PASSWORD),
-            use_tls=entry.options.get(CONF_MQTT_TLS, False),
-        )
         try:
             await mqtt_client.async_start()
         except Exception:  # noqa: BLE001
@@ -157,7 +158,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "AIRMON MQTT push setup failed; continuing with polling only",
                 exc_info=True,
             )
-            mqtt_client = None
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
@@ -178,9 +178,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     entry_data: dict[str, Any] = hass.data[DOMAIN].pop(entry.entry_id)
-    mqtt_client: AirmonMqttClient | None = entry_data["mqtt"]
-    if mqtt_client is not None:
-        await mqtt_client.async_stop()
+    mqtt_client: AirmonMqttClient = entry_data["mqtt"]
+    await mqtt_client.async_stop()
 
     api: AirmonApiClient = entry_data["api"]
     await api.async_close()

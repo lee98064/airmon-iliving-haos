@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from base64 import urlsafe_b64decode
 from datetime import UTC, date, datetime, timedelta
 import json
 import logging
@@ -110,6 +111,7 @@ class AirmonApiClient:
         self._cwa_authorization = cwa_authorization or None
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+        self._user_id: str | None = None
         self._session_authenticated = False
         self._weather_cache: dict[str, tuple[datetime, float | None]] = {}
 
@@ -269,6 +271,35 @@ class AirmonApiClient:
         if devices:
             return devices[0]
         return None
+
+    async def async_ensure_access_token(self) -> str:
+        """Return a valid bearer token for MQTT or authenticated requests."""
+        if self._access_token:
+            return self._access_token
+
+        await self.async_authenticate()
+        if self._access_token:
+            return self._access_token
+
+        if self._refresh_token:
+            await self._async_refresh_token()
+        if self._access_token:
+            return self._access_token
+
+        raise AirmonAuthenticationError("No access token returned by the AIRMON API.")
+
+    async def async_get_user_id(self) -> str | None:
+        """Return the current user id when it can be inferred from the token."""
+        if self._user_id is not None:
+            return self._user_id
+
+        try:
+            token = await self.async_ensure_access_token()
+        except AirmonAuthenticationError:
+            return None
+
+        self._user_id = self._extract_user_id_from_token(token)
+        return self._user_id
 
     async def _async_get_outdoor_temperature(
         self,
@@ -579,6 +610,7 @@ class AirmonApiClient:
 
         if access_token:
             self._access_token = access_token
+            self._user_id = self._extract_user_id_from_token(access_token)
         if refresh_token:
             self._refresh_token = refresh_token
 
@@ -587,11 +619,13 @@ class AirmonApiClient:
         authorization = headers.get("Authorization") or headers.get("authorization")
         if isinstance(authorization, str) and authorization.startswith("Bearer "):
             self._access_token = authorization.removeprefix("Bearer ").strip() or None
+            self._user_id = self._extract_user_id_from_token(self._access_token)
 
         for header_name in ("X-Access-Token", "x-access-token", "access_token", "token"):
             header_value = headers.get(header_name)
             if isinstance(header_value, str) and header_value.strip():
                 self._access_token = header_value.strip()
+                self._user_id = self._extract_user_id_from_token(self._access_token)
                 break
 
         for header_name in (
@@ -708,6 +742,7 @@ class AirmonApiClient:
 
         if response.status == 401 and auth_required and allow_retry:
             self._access_token = None
+            self._user_id = None
             self._session_authenticated = False
             if self._refresh_token:
                 try:
@@ -750,6 +785,24 @@ class AirmonApiClient:
             extract_first(payload, ["message", "error", "detail", "msg", "raw"])
         )
         return message or "Unknown API error"
+
+    def _extract_user_id_from_token(self, token: str | None) -> str | None:
+        """Extract a likely user id from a JWT-like access token."""
+        if token is None or token.count(".") < 2:
+            return None
+
+        payload_segment = token.split(".", 2)[1]
+        padding = "=" * (-len(payload_segment) % 4)
+        try:
+            decoded = urlsafe_b64decode(f"{payload_segment}{padding}")
+            payload = json.loads(decoded.decode("utf-8"))
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        return coerce_text(extract_first(payload, ("userId", "uid", "sub", "id")))
 
     def _build_url(self, path: str) -> str:
         """Build an absolute URL from a path."""

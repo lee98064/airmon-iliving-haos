@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import math
 from typing import Any
 
 MAC_CANDIDATES = (
@@ -62,7 +63,13 @@ OUTDOOR_TEMP_CANDIDATES = (
 FIRMWARE_CANDIDATES = ("firmwareVersion", "firmware", "version", "fwVer")
 POWER_USAGE_CANDIDATES = ("powerUsage", "power_usage", "consumption", "deviceConsum")
 FAMILY_ID_CANDIDATES = ("familyId", "family_id")
-HOME_LEAVE_CANDIDATES = ("homeLeaveMode", "leave_home", "leaveHome", "home_leave_mode")
+HOME_LEAVE_CANDIDATES = (
+    "homeLeave",
+    "homeLeaveMode",
+    "leave_home",
+    "leaveHome",
+    "home_leave_mode",
+)
 SILENT_MODE_CANDIDATES = ("silentMode", "silent_mode")
 ENERGY_SAVING_CANDIDATES = ("energySaving",)
 LEFT_RIGHT_SWING_CANDIDATES = ("leftRightSwing",)
@@ -75,12 +82,28 @@ OPERATION_MODE_CANDIDATES = ("operationMode",)
 POWERFUL_MODE_CANDIDATES = ("powerfulMode",)
 SET_POINT_CANDIDATES = ("setPoint",)
 UPDATED_TIME_CANDIDATES = ("updatedTime",)
+ERROR_RESET_CANDIDATES = ("errorReset",)
 AC_ERROR_CODE_CANDIDATES = ("acErrorCode",)
 FILTER_EXPIRED_CANDIDATES = ("filterExpired",)
 INDOOR_UNIT_VERSION_CANDIDATES = ("iuVer", "indoorUnitVersion", "indoor_unit_version")
 
 MODE_STATE_ON = {"ON", "OPERATION", "ENERGY SAVING", "POWERFUL MODE"}
 MODE_STATE_OFF = {"OFF", "STOP", "NORMAL"}
+CONTROL_STATUS_KEYS = (
+    "energySaving",
+    "fanSpeed",
+    "homeLeave",
+    "leftRightSwing",
+    "louverLeftRightFixedPosition",
+    "louverPosition",
+    "louverSwinging",
+    "mode3DAuto",
+    "operation",
+    "operationMode",
+    "powerfulMode",
+    "setPoint",
+    "errorReset",
+)
 
 
 def normalize_mode_value(value: str | None) -> str | None:
@@ -253,6 +276,18 @@ def resolve_horizontal_airflow(
         normalized = normalize_mode_value(legacy_text)
         return "AUTO" if normalized == "ON" else normalized
     return None
+
+
+def quantize_set_point(value: float | None, default: float = 26.0) -> float:
+    """Match the app's 0.5C set-point quantization."""
+    target = value if value is not None else default
+    return math.floor(target * 2) / 2
+
+
+def _normalized_or_default(value: Any, default: str) -> str:
+    """Return an upper-cased status value or the provided default."""
+    normalized = normalize_mode_value(coerce_status_text(value))
+    return normalized or default
 
 
 def looks_like_device(mapping: dict[str, Any]) -> bool:
@@ -466,3 +501,93 @@ class AirmonDevice:
             on_values={"ON"},
             off_values=MODE_STATE_OFF,
         )
+
+
+def _resolve_home_leave_value(device: AirmonDevice) -> str:
+    """Return the command payload value for home-leave mode."""
+    raw_value = extract_first(device.raw, HOME_LEAVE_CANDIDATES)
+    normalized = normalize_mode_value(coerce_status_text(raw_value))
+    if normalized is not None:
+        return normalized
+    if device.home_leave_mode:
+        return "ON"
+    return "NORMAL"
+
+
+def build_device_command_payload(
+    device: AirmonDevice,
+    changes: dict[str, Any],
+) -> tuple[dict[str, Any], str | None, Any]:
+    """Build a full device command payload plus action metadata."""
+    horizontal_auto = device.horizontal_swing_mode == "AUTO"
+    vertical_auto = device.swing_mode == "AUTO"
+
+    payload: dict[str, Any] = {
+        "energySaving": _normalized_or_default(device.energy_saving, "NORMAL"),
+        "fanSpeed": _normalized_or_default(device.fan_mode, "AUTO"),
+        "homeLeave": _resolve_home_leave_value(device),
+        "leftRightSwing": _normalized_or_default(
+            device.left_right_swing,
+            "ON" if horizontal_auto else "OFF",
+        ),
+        "louverLeftRightFixedPosition": _normalized_or_default(
+            device.louver_left_right_fixed_position,
+            "P1",
+        ),
+        "louverPosition": _normalized_or_default(device.louver_position, "P1"),
+        "louverSwinging": _normalized_or_default(
+            device.louver_swinging,
+            "ON" if vertical_auto else "OFF",
+        ),
+        "mode3DAuto": _normalized_or_default(device.mode_3d_auto, "OFF"),
+        "operation": _normalized_or_default(
+            device.operation,
+            "STOP" if device.power is False else "OPERATION",
+        ),
+        "operationMode": _normalized_or_default(
+            device.operation_mode or device.hvac_mode,
+            "AUTO",
+        ),
+        "powerfulMode": _normalized_or_default(device.powerful_mode, "NORMAL"),
+        "setPoint": quantize_set_point(device.set_point or device.target_temperature),
+        "errorReset": _normalized_or_default(
+            extract_first(device.raw, ERROR_RESET_CANDIDATES),
+            "NORMAL",
+        ),
+    }
+
+    canonical_changes: dict[str, Any] = {}
+    passthrough_changes: dict[str, Any] = {}
+
+    for key, value in changes.items():
+        if key == "power":
+            canonical_changes["operation"] = "OPERATION" if bool(value) else "STOP"
+            continue
+
+        canonical_key = "homeLeave" if key == "homeLeaveMode" else key
+        if canonical_key in CONTROL_STATUS_KEYS:
+            canonical_changes[canonical_key] = value
+            continue
+
+        passthrough_changes[canonical_key] = value
+
+    for key, value in canonical_changes.items():
+        if key == "setPoint":
+            payload[key] = quantize_set_point(coerce_float(value), payload["setPoint"])
+            continue
+
+        if key == "homeLeave" and isinstance(value, bool):
+            payload[key] = "ON" if value else "NORMAL"
+            continue
+
+        normalized = normalize_mode_value(coerce_status_text(value))
+        payload[key] = normalized if normalized is not None else value
+
+    payload.update(passthrough_changes)
+
+    action_key = next(iter(canonical_changes or passthrough_changes), None)
+    action_status = None
+    if action_key is not None:
+        action_status = payload.get(action_key, passthrough_changes.get(action_key))
+
+    return payload, action_key, action_status

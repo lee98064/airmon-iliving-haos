@@ -40,10 +40,7 @@ class AirmonAirflowSelect(AirmonEntity, SelectEntity):
     @property
     def options(self) -> list[str]:
         """Return selectable options."""
-        if self.coordinator.experimental_control:
-            return list(self._options)
-        current = self.current_option
-        return [current] if current else []
+        return list(self._options)
 
 
 class AirmonVerticalAirflowSelect(AirmonAirflowSelect):

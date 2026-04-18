@@ -72,7 +72,7 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     """AIRMON air conditioner climate entity."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_target_temperature_step = 1.0
+    _attr_target_temperature_step = 0.5
     _attr_min_temp = 16
     _attr_max_temp = 31
 
@@ -89,7 +89,7 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
-        return self.device.target_temperature
+        return self.device.set_point or self.device.target_temperature
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -103,9 +103,7 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def hvac_modes(self) -> list[HVACMode]:
         """Return supported HVAC modes."""
-        if self.coordinator.experimental_control:
-            return SUPPORTED_HVAC_MODES
-        return [self.hvac_mode]
+        return SUPPORTED_HVAC_MODES
 
     @property
     def fan_mode(self) -> str | None:
@@ -117,8 +115,6 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def fan_modes(self) -> list[str] | None:
         """Return supported fan modes."""
-        if not self.coordinator.experimental_control:
-            return [self.fan_mode] if self.fan_mode else None
         modes = list(KNOWN_FAN_MODES)
         if self.fan_mode and self.fan_mode not in modes:
             modes.append(self.fan_mode)
@@ -134,8 +130,6 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def swing_modes(self) -> list[str] | None:
         """Return supported swing modes."""
-        if not self.coordinator.experimental_control:
-            return [self.swing_mode] if self.swing_mode else None
         modes = list(KNOWN_SWING_MODES)
         if self.swing_mode and self.swing_mode not in modes:
             modes.append(self.swing_mode)
@@ -144,16 +138,10 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
     @property
     def supported_features(self) -> ClimateEntityFeature:
         """Return the supported climate features."""
-        if not self.coordinator.experimental_control:
-            return ClimateEntityFeature(0)
-
         features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
-        if self.device.target_temperature is not None:
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if self.fan_modes:
-            features |= ClimateEntityFeature.FAN_MODE
-        if self.swing_modes:
-            features |= ClimateEntityFeature.SWING_MODE
+        features |= ClimateEntityFeature.TARGET_TEMPERATURE
+        features |= ClimateEntityFeature.FAN_MODE
+        features |= ClimateEntityFeature.SWING_MODE
         return features
 
     @property
@@ -174,14 +162,14 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
         """Turn the device on."""
         await self.coordinator.async_send_device_command(
             self.device,
-            {"power": True, "operation": "OPERATION"},
+            {"operation": "OPERATION"},
         )
 
     async def async_turn_off(self) -> None:
         """Turn the device off."""
         await self.coordinator.async_send_device_command(
             self.device,
-            {"power": False, "operation": "STOP"},
+            {"operation": "STOP"},
         )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -203,7 +191,6 @@ class AirmonClimateEntity(AirmonEntity, ClimateEntity):
         await self.coordinator.async_send_device_command(
             self.device,
             {
-                "power": True,
                 "operation": "OPERATION",
                 "operationMode": HA_TO_APP_HVAC[hvac_mode],
             },
